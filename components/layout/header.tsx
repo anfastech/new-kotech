@@ -6,7 +6,6 @@ import { useSocket } from "@/components/providers/socket-provider"
 import { useGame } from "@/components/gamification/game-provider"
 import { useNotifications } from "@/components/notifications/notification-provider"
 import { Bell, Trophy, Wifi, WifiOff } from "lucide-react"
-// next js
 
 export function Header() {
   const { isConnected, connectionStatus } = useSocket()

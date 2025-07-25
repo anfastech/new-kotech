@@ -136,20 +136,23 @@ export function MapComponent() {
 
       mapboxgl.accessToken = mapboxToken
 
-      // Malappuram district bounds (approximate coordinates)
+      // Correct Malappuram district bounds
       const malappuramBounds = [
-        [75.5, 10.8], // Southwest coordinates
-        [76.2, 11.8], // Northeast coordinates
+        [75.78, 11.0], // Southwest coordinates (more accurate)
+        [76.12, 11.45], // Northeast coordinates (more accurate)
       ]
 
       const map = new mapboxgl.Map({
         container: mapRef.current,
         style: "mapbox://styles/mapbox/streets-v12",
-        center: [75.7804, 11.2588], // Kottakkal coordinates (center of Malappuram)
-        zoom: 14,
-        maxBounds: malappuramBounds, // Restrict view to Malappuram
-        maxZoom: 18, // Limit maximum zoom level
-        minZoom: 10, // Limit minimum zoom level
+        center: [75.95, 11.22], // Better center for Malappuram
+        zoom: 12,
+        maxBounds: [
+          [75.78, 11.0], // Southwest
+          [76.12, 11.45], // Northeast
+        ],
+        maxZoom: 18,
+        minZoom: 10,
       })
 
       // Add navigation controls
@@ -404,6 +407,13 @@ export function MapComponent() {
   const updateUserLocationMarker = (location: UserLocation) => {
     if (!mapInstanceRef.current) return
 
+    // Validate location is within Malappuram bounds
+    if (!isWithinMalappuramBounds(location.coordinates)) {
+      setLocationError("Location is outside Malappuram district")
+      sendNotification("Location Error", "You appear to be outside Malappuram district")
+      return
+    }
+
     const mapboxgl = (window as any).mapboxgl
     if (!mapboxgl) return
 
@@ -412,62 +422,84 @@ export function MapComponent() {
       userMarkerRef.current.remove()
     }
 
-    // Create user location marker element
+    // Create enhanced user location marker
     const el = document.createElement("div")
     el.className = "user-location-marker"
     el.style.cssText = `
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background-color: #3b82f6;
-      border: 3px solid white;
-      box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
-      position: relative;
-      animation: pulse 2s infinite;
-    `
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #3b82f6 40%, rgba(59, 130, 246, 0.3) 70%);
+    border: 3px solid white;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+    position: relative;
+    cursor: pointer;
+  `
 
     // Add pulsing animation
-    const style = document.createElement("style")
-    style.textContent = `
-      @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-        70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-      }
-    `
-    document.head.appendChild(style)
+    const pulseRing = document.createElement("div")
+    pulseRing.style.cssText = `
+    position: absolute;
+    top: -6px;
+    left: -6px;
+    width: 36px;
+    height: 36px;
+    border: 2px solid rgba(59, 130, 246, 0.4);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  `
+    el.appendChild(pulseRing)
 
     // Add direction indicator if heading is available
     if (location.heading !== undefined && location.heading !== null) {
       const arrow = document.createElement("div")
       arrow.style.cssText = `
-        position: absolute;
-        top: -8px;
-        left: 50%;
-        transform: translateX(-50%) rotate(${location.heading}deg);
-        width: 0;
-        height: 0;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-bottom: 8px solid #3b82f6;
-      `
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%) rotate(${location.heading}deg);
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 12px solid #3b82f6;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    `
       el.appendChild(arrow)
     }
 
-    // Create marker
+    // Create marker with enhanced popup
     const marker = new mapboxgl.Marker(el).setLngLat(location.coordinates).addTo(mapInstanceRef.current)
 
-    // Add popup with location info
-    const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-        <div class="p-2">
-          <h3 class="font-semibold text-sm mb-1">Your Location</h3>
-          <p class="text-xs text-gray-600">Accuracy: ${Math.round(location.accuracy)}m</p>
-          ${location.speed ? `<p class="text-xs text-gray-600">Speed: ${Math.round(location.speed * 3.6)} km/h</p>` : ""}
-          <p class="text-xs text-gray-500">${new Date(location.timestamp).toLocaleTimeString()}</p>
-        </div>
-      `)
+    const popup = new mapboxgl.Popup({
+      offset: 30,
+      closeButton: true,
+      closeOnClick: false,
+    }).setHTML(`
+    <div class="p-3 min-w-[200px]">
+      <h3 class="font-semibold text-sm mb-2 text-blue-600">📍 Your Location</h3>
+      <div class="space-y-1 text-xs">
+        <div><strong>Coordinates:</strong> ${location.coordinates[1].toFixed(6)}, ${location.coordinates[0].toFixed(6)}</div>
+        <div><strong>Accuracy:</strong> ±${Math.round(location.accuracy)}m</div>
+        ${location.speed ? `<div><strong>Speed:</strong> ${Math.round(location.speed * 3.6)} km/h</div>` : ""}
+        ${location.heading ? `<div><strong>Heading:</strong> ${Math.round(location.heading)}°</div>` : ""}
+        <div><strong>Updated:</strong> ${new Date(location.timestamp).toLocaleTimeString()}</div>
+      </div>
+      <div class="mt-2 pt-2 border-t text-xs text-gray-600">
+        <div>✅ Within Malappuram District</div>
+        <div>🛣️ Available for routing</div>
+      </div>
+    </div>
+  `)
 
     marker.setPopup(popup)
+
+    // Show popup briefly when location updates
+    setTimeout(() => {
+      popup.addTo(mapInstanceRef.current)
+      setTimeout(() => popup.remove(), 3000)
+    }, 500)
+
     userMarkerRef.current = marker
   }
 
@@ -613,15 +645,16 @@ export function MapComponent() {
   // Validate if coordinates are within Malappuram bounds
   const isWithinMalappuramBounds = (coordinates: [number, number]): boolean => {
     const malappuramBounds = [
-      [75.5, 10.8], // Southwest coordinates
-      [76.2, 11.8], // Northeast coordinates
+      [75.78, 11.0], // Southwest coordinates
+      [76.12, 11.45], // Northeast coordinates
     ]
 
+    const [lng, lat] = coordinates
     return (
-      coordinates[0] >= malappuramBounds[0][0] &&
-      coordinates[0] <= malappuramBounds[1][0] &&
-      coordinates[1] >= malappuramBounds[0][1] &&
-      coordinates[1] <= malappuramBounds[1][1]
+      lng >= malappuramBounds[0][0] &&
+      lng <= malappuramBounds[1][0] &&
+      lat >= malappuramBounds[0][1] &&
+      lat <= malappuramBounds[1][1]
     )
   }
 
@@ -763,6 +796,84 @@ export function MapComponent() {
     sendNotification("Incident Reported", `${incident.type} reported successfully`)
     setShowIncidentModal(false)
     setIncidentLocation(null)
+  }
+
+  const calculateRouteFromUser = async (destination: [number, number], vehicleType = "normal") => {
+    if (!userLocation || !mapInstanceRef.current) {
+      sendNotification("Route Error", "Your location is required for routing")
+      return null
+    }
+
+    try {
+      const response = await fetch("/api/routes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          start: userLocation.coordinates,
+          end: destination,
+          vehicle_type: vehicleType,
+          avoid_congestion: true,
+          user_location: true,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success && data.route) {
+        // Add route visualization
+        const routeId = `user-route-${Date.now()}`
+
+        mapInstanceRef.current.addSource(routeId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: data.route.geometry,
+          },
+        })
+
+        mapInstanceRef.current.addLayer({
+          id: routeId,
+          type: "line",
+          source: routeId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": "#10b981",
+            "line-width": 4,
+            "line-opacity": 0.8,
+            "line-dasharray": [2, 2],
+          },
+        })
+
+        // Fit map to show the entire route
+        const coordinates = data.route.geometry.coordinates
+        if (coordinates.length > 0) {
+          const bounds = coordinates.reduce(
+            (bounds: any, coord: [number, number]) => {
+              return bounds.extend(coord)
+            },
+            new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0]),
+          )
+
+          mapInstanceRef.current.fitBounds(bounds, {
+            padding: 50,
+            duration: 1000,
+          })
+        }
+
+        return data.route
+      }
+    } catch (error) {
+      console.error("Error calculating route from user:", error)
+      sendNotification("Route Error", "Failed to calculate route from your location")
+    }
+
+    return null
   }
 
   if (mapError) {
