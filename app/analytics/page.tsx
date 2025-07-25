@@ -14,75 +14,123 @@ import {
   Pie,
   Cell,
 } from "recharts"
+import { TrendingUp, TrendingDown, Activity, AlertTriangle, Clock, Car } from "lucide-react"
 
 const trafficData = [
-  { time: "06:00", vehicles: 120, congestion: 0.2 },
-  { time: "07:00", vehicles: 280, congestion: 0.6 },
-  { time: "08:00", vehicles: 450, congestion: 0.8 },
-  { time: "09:00", vehicles: 380, congestion: 0.7 },
-  { time: "10:00", vehicles: 220, congestion: 0.4 },
-  { time: "11:00", vehicles: 180, congestion: 0.3 },
-  { time: "12:00", vehicles: 320, congestion: 0.5 },
+  { time: "00:00", vehicles: 45, incidents: 2 },
+  { time: "06:00", vehicles: 120, incidents: 5 },
+  { time: "12:00", vehicles: 280, incidents: 8 },
+  { time: "18:00", vehicles: 350, incidents: 12 },
+  { time: "24:00", vehicles: 80, incidents: 3 },
 ]
 
-const vehicleTypes = [
-  { name: "Normal Vehicles", value: 45, color: "#8884d8" },
-  { name: "School Buses", value: 12, color: "#82ca9d" },
-  { name: "City Buses", value: 8, color: "#ffc658" },
-  { name: "Emergency", value: 5, color: "#ff7300" },
+const vehicleDistribution = [
+  { name: "Normal Vehicles", value: 68, color: "#10b981" },
+  { name: "City Buses", value: 12, color: "#3b82f6" },
+  { name: "School Buses", value: 8, color: "#f59e0b" },
+  { name: "Emergency", value: 5, color: "#ef4444" },
 ]
 
-const incidentData = [
-  { type: "Accidents", count: 12, trend: "+2" },
-  { type: "Congestion", count: 28, trend: "-5" },
-  { type: "Road Blocks", count: 6, trend: "+1" },
-  { type: "Construction", count: 4, trend: "0" },
+const incidentTypes = [
+  { type: "Congestion", count: 15, trend: "up" },
+  { type: "Accidents", count: 8, trend: "down" },
+  { type: "Road Work", count: 5, trend: "up" },
+  { type: "Weather", count: 2, trend: "down" },
 ]
 
 export default function AnalyticsPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Traffic Analytics</h1>
-        <Badge variant="outline">Last updated: 2 min ago</Badge>
+        <div>
+          <h1 className="text-2xl font-bold">Traffic Analytics</h1>
+          <p className="text-gray-600">Real-time insights and performance metrics</p>
+        </div>
+        <Badge variant="secondary">Live Data</Badge>
       </div>
 
+      {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-4">
-          <h3 className="text-sm font-medium text-gray-500">Total Vehicles</h3>
-          <p className="text-2xl font-bold">68</p>
-          <p className="text-xs text-green-600">+12% from yesterday</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Active Vehicles</p>
+              <p className="text-2xl font-bold">93</p>
+            </div>
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Car className="w-6 h-6 text-blue-600" />
+            </div>
+          </div>
+          <div className="flex items-center mt-2 text-sm">
+            <TrendingUp className="w-4 h-4 text-green-500 mr-1" />
+            <span className="text-green-500">+12%</span>
+            <span className="text-gray-500 ml-1">from yesterday</span>
+          </div>
         </Card>
 
         <Card className="p-4">
-          <h3 className="text-sm font-medium text-gray-500">Active Incidents</h3>
-          <p className="text-2xl font-bold">5</p>
-          <p className="text-xs text-red-600">+2 from last hour</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Active Incidents</p>
+              <p className="text-2xl font-bold">30</p>
+            </div>
+            <div className="p-2 bg-red-100 rounded-lg">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+          </div>
+          <div className="flex items-center mt-2 text-sm">
+            <TrendingDown className="w-4 h-4 text-red-500 mr-1" />
+            <span className="text-red-500">-5%</span>
+            <span className="text-gray-500 ml-1">from yesterday</span>
+          </div>
         </Card>
 
         <Card className="p-4">
-          <h3 className="text-sm font-medium text-gray-500">Avg Speed</h3>
-          <p className="text-2xl font-bold">32 km/h</p>
-          <p className="text-xs text-yellow-600">-8% from normal</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Avg Speed</p>
+              <p className="text-2xl font-bold">45 km/h</p>
+            </div>
+            <div className="p-2 bg-green-100 rounded-lg">
+              <Activity className="w-6 h-6 text-green-600" />
+            </div>
+          </div>
+          <div className="flex items-center mt-2 text-sm">
+            <TrendingUp className="w-4 h-4 text-green-500 mr-1" />
+            <span className="text-green-500">+8%</span>
+            <span className="text-gray-500 ml-1">from yesterday</span>
+          </div>
         </Card>
 
         <Card className="p-4">
-          <h3 className="text-sm font-medium text-gray-500">Emergency Response</h3>
-          <p className="text-2xl font-bold">4.2 min</p>
-          <p className="text-xs text-green-600">-15% improvement</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Response Time</p>
+              <p className="text-2xl font-bold">4.2 min</p>
+            </div>
+            <div className="p-2 bg-orange-100 rounded-lg">
+              <Clock className="w-6 h-6 text-orange-600" />
+            </div>
+          </div>
+          <div className="flex items-center mt-2 text-sm">
+            <TrendingDown className="w-4 h-4 text-green-500 mr-1" />
+            <span className="text-green-500">-15%</span>
+            <span className="text-gray-500 ml-1">from yesterday</span>
+          </div>
         </Card>
       </div>
 
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Traffic Flow Today</h3>
+          <h3 className="text-lg font-semibold mb-4">Traffic Flow (24h)</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={trafficData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="time" />
               <YAxis />
               <Tooltip />
-              <Line type="monotone" dataKey="vehicles" stroke="#8884d8" strokeWidth={2} />
+              <Line type="monotone" dataKey="vehicles" stroke="#3b82f6" strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </Card>
@@ -92,7 +140,7 @@ export default function AnalyticsPage() {
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
-                data={vehicleTypes}
+                data={vehicleDistribution}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
@@ -101,7 +149,7 @@ export default function AnalyticsPage() {
                 fill="#8884d8"
                 dataKey="value"
               >
-                {vehicleTypes.map((entry, index) => (
+                {vehicleDistribution.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
@@ -111,31 +159,75 @@ export default function AnalyticsPage() {
         </Card>
       </div>
 
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold mb-4">Incident Summary</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {incidentData.map((incident, index) => (
-            <div key={index} className="p-4 border rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-medium">{incident.type}</h4>
-                <Badge
-                  variant={
-                    incident.trend.startsWith("+")
-                      ? "destructive"
-                      : incident.trend.startsWith("-")
-                        ? "default"
-                        : "secondary"
-                  }
-                >
-                  {incident.trend}
-                </Badge>
+      {/* Incident Analysis */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Incident Analysis</h3>
+          <div className="space-y-4">
+            {incidentTypes.map((incident) => (
+              <div key={incident.type} className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-4 h-4 text-orange-500" />
+                  <span className="font-medium">{incident.type}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{incident.count}</Badge>
+                  {incident.trend === "up" ? (
+                    <TrendingUp className="w-4 h-4 text-red-500" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4 text-green-500" />
+                  )}
+                </div>
               </div>
-              <p className="text-2xl font-bold">{incident.count}</p>
-              <p className="text-sm text-gray-500">This week</p>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Performance Metrics</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Emergency Response</span>
+              <div className="flex items-center gap-2">
+                <div className="w-20 bg-gray-200 rounded-full h-2">
+                  <div className="bg-green-500 h-2 rounded-full" style={{ width: "85%" }}></div>
+                </div>
+                <span className="text-sm font-medium">85%</span>
+              </div>
             </div>
-          ))}
-        </div>
-      </Card>
+
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Traffic Flow Efficiency</span>
+              <div className="flex items-center gap-2">
+                <div className="w-20 bg-gray-200 rounded-full h-2">
+                  <div className="bg-blue-500 h-2 rounded-full" style={{ width: "72%" }}></div>
+                </div>
+                <span className="text-sm font-medium">72%</span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Incident Resolution</span>
+              <div className="flex items-center gap-2">
+                <div className="w-20 bg-gray-200 rounded-full h-2">
+                  <div className="bg-orange-500 h-2 rounded-full" style={{ width: "68%" }}></div>
+                </div>
+                <span className="text-sm font-medium">68%</span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">System Uptime</span>
+              <div className="flex items-center gap-2">
+                <div className="w-20 bg-gray-200 rounded-full h-2">
+                  <div className="bg-green-500 h-2 rounded-full" style={{ width: "99%" }}></div>
+                </div>
+                <span className="text-sm font-medium">99%</span>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
     </div>
   )
 }

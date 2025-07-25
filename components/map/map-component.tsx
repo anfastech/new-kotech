@@ -1,13 +1,18 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import mapboxgl from "mapbox-gl"
 import { useSocket } from "@/components/providers/socket-provider"
 import { MapControls } from "./map-controls"
 import { IncidentReportModal } from "./incident-report-modal"
 import { VehicleInfoPanel } from "./vehicle-info-panel"
 import { TrafficLegend } from "./traffic-legend"
-import "mapbox-gl/dist/mapbox-gl.css"
+
+// Declare mapboxgl as global
+declare global {
+  interface Window {
+    mapboxgl: any
+  }
+}
 
 // Kottakkal coordinates
 const KOTTAKKAL_CENTER: [number, number] = [75.9064, 10.9847]
@@ -31,8 +36,19 @@ interface Incident {
 
 export function MapComponent() {
   const mapContainer = useRef<HTMLDivElement>(null)
-  const map = useRef<mapboxgl.Map | null>(null)
-  const { socket, isConnected } = useSocket()
+  const map = useRef<any>(null)
+  const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapError, setMapError] = useState<string | null>(null)
+
+  const {
+    database,
+    isConnected,
+    publishVehicleUpdate,
+    publishIncidentUpdate,
+    subscribeToVehicleUpdates,
+    subscribeToIncidentUpdates,
+    subscribeToTrafficUpdates,
+  } = useSocket()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [incidents, setIncidents] = useState<Incident[]>([])
@@ -41,56 +57,86 @@ export function MapComponent() {
   const [reportLocation, setReportLocation] = useState<[number, number] | null>(null)
   const [activeLayer, setActiveLayer] = useState<string>("all")
 
-  // Initialize Mapbox
+  // Load Mapbox GL JS and CSS from CDN
   useEffect(() => {
-    if (!mapContainer.current) return
+    if (typeof window !== "undefined" && !window.mapboxgl) {
+      // Load CSS
+      const link = document.createElement("link")
+      link.href = "https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css"
+      link.rel = "stylesheet"
+      document.head.appendChild(link)
 
-    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "pk.eyJ1IjoidGVzdCIsImEiOiJjbGV0ZXN0In0.test"
-
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: "mapbox://styles/mapbox/streets-v12",
-      center: KOTTAKKAL_CENTER,
-      zoom: 13,
-      pitch: 45,
-      bearing: 0,
-    })
-
-    // Add navigation controls
-    map.current.addControl(new mapboxgl.NavigationControl(), "top-right")
-    map.current.addControl(
-      new mapboxgl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-        showUserHeading: true,
-      }),
-      "top-right",
-    )
-
-    // Initialize map layers
-    map.current.on("load", () => {
-      initializeMapLayers()
-      loadMockData()
-    })
-
-    // Handle right-click for incident reporting
-    map.current.on("contextmenu", (e) => {
-      setReportLocation([e.lngLat.lng, e.lngLat.lat])
-      setShowIncidentModal(true)
-    })
-
-    return () => {
-      if (map.current) {
-        map.current.remove()
+      // Load JavaScript
+      const script = document.createElement("script")
+      script.src = "https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"
+      script.onload = () => {
+        setMapLoaded(true)
+        initializeMap()
       }
+      script.onerror = () => {
+        setMapError("Failed to load Mapbox GL JS")
+      }
+      document.head.appendChild(script)
+
+      return () => {
+        if (document.head.contains(link)) document.head.removeChild(link)
+        if (document.head.contains(script)) document.head.removeChild(script)
+      }
+    } else if (window.mapboxgl) {
+      setMapLoaded(true)
+      initializeMap()
     }
   }, [])
 
-  // Socket event listeners
-  useEffect(() => {
-    if (!socket || !isConnected) return
+  const initializeMap = () => {
+    if (!mapContainer.current || !window.mapboxgl) return
 
-    socket.on("vehicle-update", (vehicleData: Vehicle) => {
+    try {
+      window.mapboxgl.accessToken =
+        process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "pk.eyJ1IjoidGVzdCIsImEiOiJjbGV0ZXN0In0.test"
+
+      map.current = new window.mapboxgl.Map({
+        container: mapContainer.current,
+        style: "mapbox://styles/mapbox/streets-v12",
+        center: KOTTAKKAL_CENTER,
+        zoom: 13,
+        pitch: 45,
+        bearing: 0,
+      })
+
+      // Add navigation controls
+      map.current.addControl(new window.mapboxgl.NavigationControl(), "top-right")
+      map.current.addControl(
+        new window.mapboxgl.GeolocateControl({
+          positionOptions: { enableHighAccuracy: true },
+          trackUserLocation: true,
+          showUserHeading: true,
+        }),
+        "top-right",
+      )
+
+      // Initialize map layers
+      map.current.on("load", () => {
+        initializeMapLayers()
+        loadMockData()
+      })
+
+      // Handle right-click for incident reporting
+      map.current.on("contextmenu", (e) => {
+        setReportLocation([e.lngLat.lng, e.lngLat.lat])
+        setShowIncidentModal(true)
+      })
+    } catch (error) {
+      setMapError("Failed to initialize map: " + error)
+    }
+  }
+
+  // Firebase event listeners
+  useEffect(() => {
+    if (!database || !isConnected) return
+
+    // Subscribe to vehicle updates
+    const unsubscribeVehicles = subscribeToVehicleUpdates((vehicleData: Vehicle) => {
       setVehicles((prev) => {
         const updated = prev.filter((v) => v.id !== vehicleData.id)
         return [...updated, vehicleData]
@@ -98,7 +144,8 @@ export function MapComponent() {
       updateVehicleOnMap(vehicleData)
     })
 
-    socket.on("incident-update", (incidentData: Incident) => {
+    // Subscribe to incident updates
+    const unsubscribeIncidents = subscribeToIncidentUpdates((incidentData: Incident) => {
       setIncidents((prev) => {
         const updated = prev.filter((i) => i.id !== incidentData.id)
         return [...updated, incidentData]
@@ -106,16 +153,17 @@ export function MapComponent() {
       updateIncidentOnMap(incidentData)
     })
 
-    socket.on("traffic-update", (trafficData: any) => {
+    // Subscribe to traffic updates
+    const unsubscribeTraffic = subscribeToTrafficUpdates((trafficData: any) => {
       updateTrafficLayer(trafficData)
     })
 
     return () => {
-      socket.off("vehicle-update")
-      socket.off("incident-update")
-      socket.off("traffic-update")
+      unsubscribeVehicles()
+      unsubscribeIncidents()
+      unsubscribeTraffic()
     }
-  }, [socket, isConnected])
+  }, [database, isConnected])
 
   const initializeMapLayers = () => {
     if (!map.current) return
@@ -133,25 +181,16 @@ export function MapComponent() {
         },
       })
 
-      // Add layer
+      // Add layer with custom markers
       map.current!.addLayer({
         id: `${type}-vehicles-layer`,
-        type: "symbol",
+        type: "circle",
         source: `${type}-vehicles`,
-        layout: {
-          "icon-image": getVehicleIcon(type),
-          "icon-size": type === "ambulance" || type === "fire" ? 1.2 : 1.0,
-          "icon-allow-overlap": true,
-          "text-field": ["get", "id"],
-          "text-font": ["Open Sans Semibold", "Arial Unicode MS Bold"],
-          "text-offset": [0, 1.25],
-          "text-anchor": "top",
-          "text-size": 12,
-        },
         paint: {
-          "text-color": "#000000",
-          "text-halo-color": "#ffffff",
-          "text-halo-width": 2,
+          "circle-radius": type === "ambulance" || type === "fire" ? 8 : 6,
+          "circle-color": getVehicleColor(type),
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
         },
       })
 
@@ -178,12 +217,13 @@ export function MapComponent() {
 
     map.current!.addLayer({
       id: "incidents-layer",
-      type: "symbol",
+      type: "circle",
       source: "incidents",
-      layout: {
-        "icon-image": "warning-15",
-        "icon-size": 1.5,
-        "icon-allow-overlap": true,
+      paint: {
+        "circle-radius": 10,
+        "circle-color": "#ff4444",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
       },
     })
 
@@ -207,21 +247,21 @@ export function MapComponent() {
     })
   }
 
-  const getVehicleIcon = (type: string): string => {
-    const icons = {
-      ambulance: "hospital-15",
-      fire: "fire-station-15",
-      school_bus: "school-15",
-      city_bus: "bus-15",
-      normal: "car-15",
+  const getVehicleColor = (type: string): string => {
+    const colors = {
+      ambulance: "#ff0000",
+      fire: "#ff4400",
+      school_bus: "#ffaa00",
+      city_bus: "#0088ff",
+      normal: "#00aa00",
     }
-    return icons[type as keyof typeof icons] || "car-15"
+    return colors[type as keyof typeof colors] || "#666666"
   }
 
   const updateVehicleOnMap = (vehicle: Vehicle) => {
     if (!map.current) return
 
-    const source = map.current.getSource(`${vehicle.type}-vehicles`) as mapboxgl.GeoJSONSource
+    const source = map.current.getSource(`${vehicle.type}-vehicles`) as any
     if (source) {
       const currentData = source._data as any
       const features = currentData.features.filter((f: any) => f.properties.id !== vehicle.id)
@@ -249,7 +289,7 @@ export function MapComponent() {
   const updateIncidentOnMap = (incident: Incident) => {
     if (!map.current) return
 
-    const source = map.current.getSource("incidents") as mapboxgl.GeoJSONSource
+    const source = map.current.getSource("incidents") as any
     if (source) {
       const currentData = source._data as any
       const features = currentData.features.filter((f: any) => f.properties.id !== incident.id)
@@ -278,7 +318,7 @@ export function MapComponent() {
   const updateTrafficLayer = (trafficData: any) => {
     if (!map.current) return
 
-    const source = map.current.getSource("traffic-congestion") as mapboxgl.GeoJSONSource
+    const source = map.current.getSource("traffic-congestion") as any
     if (source) {
       source.setData(trafficData)
     }
@@ -311,7 +351,11 @@ export function MapComponent() {
       },
     ]
 
+    // Publish initial vehicle data to Firebase
     mockVehicles.forEach((vehicle) => {
+      if (publishVehicleUpdate) {
+        publishVehicleUpdate(vehicle)
+      }
       updateVehicleOnMap(vehicle)
     })
     setVehicles(mockVehicles)
@@ -322,6 +366,11 @@ export function MapComponent() {
         // Simulate movement
         vehicle.coordinates[0] += (Math.random() - 0.5) * 0.001
         vehicle.coordinates[1] += (Math.random() - 0.5) * 0.001
+
+        // Publish to Firebase
+        if (publishVehicleUpdate) {
+          publishVehicleUpdate(vehicle)
+        }
         updateVehicleOnMap(vehicle)
       })
     }, 3000)
@@ -339,7 +388,7 @@ export function MapComponent() {
   }
 
   const handleIncidentReport = (incidentData: any) => {
-    if (socket && reportLocation) {
+    if (database && reportLocation) {
       const incident: Incident = {
         id: `incident-${Date.now()}`,
         type: incidentData.type,
@@ -349,10 +398,40 @@ export function MapComponent() {
         timestamp: new Date(),
       }
 
-      socket.emit("report-incident", incident)
+      if (publishIncidentUpdate) {
+        publishIncidentUpdate(incident)
+      }
       setShowIncidentModal(false)
       setReportLocation(null)
     }
+  }
+
+  if (mapError) {
+    return (
+      <div className="flex items-center justify-center h-full bg-gray-100">
+        <div className="text-center p-8">
+          <div className="text-red-500 text-xl mb-4">Map Loading Error</div>
+          <div className="text-gray-600">{mapError}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!mapLoaded) {
+    return (
+      <div className="flex items-center justify-center h-full bg-gray-100">
+        <div className="text-center p-8">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <div className="text-gray-600">Loading Mapbox GL JS...</div>
+        </div>
+      </div>
+    )
   }
 
   return (
