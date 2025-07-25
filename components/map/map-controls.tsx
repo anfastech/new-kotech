@@ -1,11 +1,11 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ui/button"
+import { Heart, Flame, Bus, Car, Home, MapPin, Crosshair, Target, Eye, EyeOff, Route, RotateCcw } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
-import { Eye, EyeOff, RotateCcw, Route, Heart, Flame, Bus, Car, MapPin, Target, Crosshair } from "lucide-react"
 
 interface Vehicle {
   id: string
@@ -32,17 +32,17 @@ interface MapControlsProps {
     city_bus: boolean
     normal: boolean
   }
-  onLayerToggle: (layer: keyof typeof visibleLayers, visible: boolean) => void
-  onResetView: () => void
-  showRoutes: boolean
-  onToggleRoutes: () => void
+  onLayerToggle: (layer: "ambulance" | "fire" | "school_bus" | "city_bus" | "normal", visible: boolean) => void
+  onResetView?: () => void
+  showRoutes?: boolean
+  onToggleRoutes?: () => void
   userLocation?: UserLocation | null
-  isTrackingUser: boolean
-  onStartTracking: () => void
-  onStopTracking: () => void
-  onCenterOnUser: () => void
-  autoCenter: boolean
-  onToggleAutoCenter: () => void
+  isTrackingUser?: boolean
+  onStartTracking?: () => void
+  onStopTracking?: () => void
+  onCenterOnUser?: () => void
+  autoCenter?: boolean
+  onToggleAutoCenter?: () => void
 }
 
 export function MapControls({

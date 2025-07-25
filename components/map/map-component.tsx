@@ -55,13 +55,15 @@ export function MapComponent() {
   const [showRoutes, setShowRoutes] = useState(false)
   const [vehicleRoutes, setVehicleRoutes] = useState<{ [key: string]: any }>({})
   const routesRef = useRef<{ [key: string]: any }>({})
-
+  
   // User location states
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
   const [isTrackingUser, setIsTrackingUser] = useState(false)
   const [locationPermission, setLocationPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown")
   const [autoCenter, setAutoCenter] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const userLocationMarkerRef = useRef<any>(null)
+  const userLocationSourceRef = useRef<any>(null)
 
   const { socket, isConnected, connectionStatus } = useSocket()
   const { sendNotification } = useNotifications()
@@ -993,6 +995,38 @@ export function MapComponent() {
           <span className="text-sm font-medium text-blue-800">Malappuram District</span>
         </div>
         <div className="text-xs text-blue-600 mt-1">View restricted to district boundaries</div>
+      </div>
+
+      {/* User Location Controls */}
+      <div className="absolute top-4 left-64 bg-white rounded-lg shadow-lg p-3">
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${isTrackingUser ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+            <span className="text-sm font-medium">
+              {isTrackingUser ? 'Location Active' : 'Location Inactive'}
+            </span>
+          </div>
+          <button
+            onClick={isTrackingUser ? stopLocationTracking : startLocationTracking}
+            className={`px-3 py-1 text-xs rounded ${
+              isTrackingUser 
+                ? 'bg-red-500 text-white hover:bg-red-600' 
+                : 'bg-blue-500 text-white hover:bg-blue-600'
+            }`}
+          >
+            {isTrackingUser ? 'Stop' : 'Start'}
+          </button>
+        </div>
+        {userLocation && (
+          <div className="text-xs text-gray-600 mt-1">
+            <div>Coordinates: {userLocation.coordinates[1].toFixed(4)}, {userLocation.coordinates[0].toFixed(4)}</div>
+            <div>Accuracy: ±{Math.round(userLocation.accuracy)}m</div>
+            <div>Updated: {new Date(userLocation.timestamp).toLocaleTimeString()}</div>
+          </div>
+        )}
+        {locationError && (
+          <div className="text-xs text-red-600 mt-1">{locationError}</div>
+        )}
       </div>
 
       {/* Map Controls */}
