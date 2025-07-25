@@ -10,7 +10,7 @@ const nextConfig = {
     unoptimized: true,
   },
   experimental: {
-    serverComponentsExternalPackages: ['socket.io']
+    serverComponentsExternalPackages: []
   },
   webpack: (config) => {
     config.externals.push({
