@@ -102,19 +102,19 @@ export function MapComponent() {
       mapboxgl.accessToken = mapboxToken
 
       // Malappuram district bounds (approximate coordinates)
-      const malappuramBounds = [
-        [75.5, 10.8], // Southwest coordinates
-        [76.2, 11.8]  // Northeast coordinates
+      const malappuramBounds= [
+        [75.9988, 11.0001], // Southwest coordinates
+        [76.0029, 11.0016]  // Northeast coordinates
       ]
 
       const map = new mapboxgl.Map({
         container: mapRef.current,
         style: "mapbox://styles/mapbox/streets-v12",
-        center: [75.7804, 11.2588], // Kottakkal coordinates (center of Malappuram)
-        zoom: 10,
+        center: [75.9988, 11.0001], // Kottakkal coordinates (center of Malappuram)
+        zoom: 16,
         maxBounds: malappuramBounds, // Restrict view to Malappuram
-        maxZoom: 16, // Limit maximum zoom level
-        minZoom: 8,  // Limit minimum zoom level
+        maxZoom: 17, // Limit maximum zoom level
+        minZoom: 13,  // Limit minimum zoom level
       })
 
       // Add navigation controls
@@ -156,11 +156,11 @@ export function MapComponent() {
             geometry: {
               type: 'Polygon',
               coordinates: [[
-                [75.5, 10.8], // Southwest
-                [76.2, 10.8], // Southeast
-                [76.2, 11.8], // Northeast
-                [75.5, 11.8], // Northwest
-                [75.5, 10.8]  // Close the polygon
+                [75.9988, 12.9999], // Southwest
+                [76.0029, 12.9999], // Southeast
+                [76.0029, 12.0016], // Northeast
+                [75.9988, 12.0016], // Northwest
+                [75.9988, 12.9999]  // Close the polygon
               ]]
             }
           }
