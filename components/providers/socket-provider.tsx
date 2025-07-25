@@ -1,38 +1,30 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react"
+import { initializeApp } from "firebase/app"
+import { getDatabase, ref, onValue, set, push, off, type Database } from "firebase/database"
 
-// Firebase configuration type
-interface FirebaseConfig {
-  apiKey: string
-  authDomain: string
-  databaseURL: string
-  projectId: string
-  storageBucket: string
-  messagingSenderId: string
-  appId: string
+// Mock socket interface for compatibility
+interface MockSocket {
+  on: (event: string, callback: (data: any) => void) => void
+  off: (event: string, callback?: (data: any) => void) => void
+  emit: (event: string, data: any) => void
 }
 
-// Socket context interface
 interface SocketContextType {
-  database: any
+  socket: MockSocket | null
   isConnected: boolean
-  publishVehicleUpdate: (vehicle: any) => void
-  publishIncidentUpdate: (incident: any) => void
-  publishTrafficUpdate: (traffic: any) => void
-  subscribeToVehicleUpdates: (callback: (data: any) => void) => () => void
-  subscribeToIncidentUpdates: (callback: (data: any) => void) => () => void
-  subscribeToTrafficUpdates: (callback: (data: any) => void) => () => void
+  connectionStatus: "connecting" | "connected" | "disconnected" | "error" | "mock"
 }
 
-const SocketContext = createContext<SocketContextType | null>(null)
+const SocketContext = createContext<SocketContextType>({
+  socket: null,
+  isConnected: false,
+  connectionStatus: "disconnected",
+})
 
 export function useSocket() {
-  const context = useContext(SocketContext)
-  if (!context) {
-    throw new Error("useSocket must be used within a SocketProvider")
-  }
-  return context
+  return useContext(SocketContext)
 }
 
 interface SocketProviderProps {
@@ -40,200 +32,171 @@ interface SocketProviderProps {
 }
 
 export function SocketProvider({ children }: SocketProviderProps) {
-  const [database, setDatabase] = useState<any>(null)
+  const [socket, setSocket] = useState<MockSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [mockData, setMockData] = useState<{
-    vehicles: Record<string, any>;
-    incidents: Record<string, any>;
-    traffic: any;
-  }>({
-    vehicles: {},
-    incidents: {},
-    traffic: {},
-  })
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connecting" | "connected" | "disconnected" | "error" | "mock"
+  >("connecting")
+  const [database, setDatabase] = useState<Database | null>(null)
 
-  useEffect(() => {
-    // Check if Firebase config is available
-    const firebaseConfig = {
-      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
-      authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
-      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || "",
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
-      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
-      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
-    }
+  // Firebase configuration
+  const firebaseConfig = {
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    databaseURL: process.env.NEXT_PUBLIC_SOCKET_URL,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  }
 
-    // Check if all required config is present
-    const hasFirebaseConfig = Object.values(firebaseConfig).every((value) => value && value !== "")
-
-    if (hasFirebaseConfig) {
-      initializeFirebase(firebaseConfig as FirebaseConfig)
-    } else {
-      console.warn("Firebase config not found, using mock mode")
-      initializeMockMode()
-    }
+  // Check if Firebase is configured
+  const isFirebaseConfigured = useCallback(() => {
+    return !!(
+      firebaseConfig.apiKey &&
+      firebaseConfig.authDomain &&
+      firebaseConfig.databaseURL &&
+      firebaseConfig.projectId
+    )
   }, [])
 
-  const initializeFirebase = async (config: FirebaseConfig) => {
-    try {
-      // Use require for Firebase imports
-      const { initializeApp } = require("firebase/app")
-      const { getDatabase } = require("firebase/database")
+  // Mock data for development
+  const mockVehicles = [
+    { id: "amb-001", type: "ambulance", coordinates: [75.7804, 11.2588], status: "active", timestamp: Date.now() },
+    { id: "fire-001", type: "fire", coordinates: [75.7814, 11.2598], status: "active", timestamp: Date.now() },
+    { id: "bus-001", type: "school_bus", coordinates: [75.7824, 11.2608], status: "active", timestamp: Date.now() },
+    { id: "bus-002", type: "city_bus", coordinates: [75.7834, 11.2618], status: "active", timestamp: Date.now() },
+    { id: "car-001", type: "normal", coordinates: [75.7844, 11.2628], status: "active", timestamp: Date.now() },
+  ]
 
-      const app = initializeApp(config)
-      const db = getDatabase(app)
+  // Create mock socket
+  const createMockSocket = useCallback((): MockSocket => {
+    const eventListeners: { [key: string]: ((data: any) => void)[] } = {}
 
-      setDatabase(db)
+    const mockSocket: MockSocket = {
+      on: (event: string, callback: (data: any) => void) => {
+        if (!eventListeners[event]) {
+          eventListeners[event] = []
+        }
+        eventListeners[event].push(callback)
+      },
+      off: (event: string, callback?: (data: any) => void) => {
+        if (eventListeners[event]) {
+          if (callback) {
+            eventListeners[event] = eventListeners[event].filter((cb) => cb !== callback)
+          } else {
+            eventListeners[event] = []
+          }
+        }
+      },
+      emit: (event: string, data: any) => {
+        console.log(`Mock emit: ${event}`, data)
+      },
+    }
+
+    // Simulate vehicle updates
+    const simulateVehicleUpdates = () => {
+      mockVehicles.forEach((vehicle) => {
+        // Simulate movement
+        vehicle.coordinates[0] += (Math.random() - 0.5) * 0.001
+        vehicle.coordinates[1] += (Math.random() - 0.5) * 0.001
+        vehicle.timestamp = Date.now()
+
+        if (eventListeners["vehicle-update"]) {
+          eventListeners["vehicle-update"].forEach((callback) => {
+            callback(vehicle)
+          })
+        }
+      })
+    }
+
+    // Start simulation
+    const interval = setInterval(simulateVehicleUpdates, 3000)
+
+    // Initial data load
+    setTimeout(() => {
+      if (eventListeners["vehicles-data"]) {
+        eventListeners["vehicles-data"].forEach((callback) => {
+          callback(mockVehicles)
+        })
+      }
+    }, 1000)
+
+    return mockSocket
+  }, [])
+
+  // Initialize Firebase or mock
+  useEffect(() => {
+    let cleanup: (() => void) | null = null
+
+    if (isFirebaseConfigured()) {
+      try {
+        setConnectionStatus("connecting")
+        const app = initializeApp(firebaseConfig)
+        const db = getDatabase(app)
+        setDatabase(db)
+
+        // Test connection
+        const connectedRef = ref(db, ".info/connected")
+        const unsubscribe = onValue(connectedRef, (snapshot) => {
+          if (snapshot.val() === true) {
+            setIsConnected(true)
+            setConnectionStatus("connected")
+            console.log("Firebase connected")
+          } else {
+            setIsConnected(false)
+            setConnectionStatus("disconnected")
+            console.log("Firebase disconnected")
+          }
+        })
+
+        // Create Firebase socket wrapper
+        const firebaseSocket: MockSocket = {
+          on: (event: string, callback: (data: any) => void) => {
+            const eventRef = ref(db, event)
+            onValue(eventRef, (snapshot) => {
+              const data = snapshot.val()
+              if (data) callback(data)
+            })
+          },
+          off: (event: string) => {
+            const eventRef = ref(db, event)
+            off(eventRef)
+          },
+          emit: (event: string, data: any) => {
+            const eventRef = ref(db, event)
+            if (event.includes("feed") || event.includes("alert")) {
+              push(eventRef, data)
+            } else {
+              set(eventRef, data)
+            }
+          },
+        }
+
+        setSocket(firebaseSocket)
+        cleanup = () => {
+          unsubscribe()
+          off(ref(db))
+        }
+      } catch (error) {
+        console.error("Firebase initialization failed:", error)
+        setConnectionStatus("error")
+        // Fallback to mock
+        setSocket(createMockSocket())
+        setIsConnected(true)
+        setConnectionStatus("mock")
+      }
+    } else {
+      console.log("Firebase not configured, using mock mode")
+      setSocket(createMockSocket())
       setIsConnected(true)
-
-      console.log("Firebase initialized successfully")
-    } catch (error) {
-      console.error("Failed to initialize Firebase:", error)
-      initializeMockMode()
+      setConnectionStatus("mock")
     }
-  }
 
-  const initializeMockMode = () => {
-    setDatabase("mock")
-    setIsConnected(true)
-    console.log("Using mock mode for development")
-  }
-
-  const publishVehicleUpdate = async (vehicle: any) => {
-    if (database === "mock") {
-      setMockData((prev) => ({
-        ...prev,
-        vehicles: { ...prev.vehicles, [vehicle.id]: vehicle },
-      }))
-    } else if (database) {
-      try {
-        // Use require for Firebase imports to avoid TypeScript issues
-        const { ref, set, serverTimestamp } = require("firebase/database")
-        const vehicleRef = ref(database, `vehicles/${vehicle.id}`)
-        await set(vehicleRef, {
-          ...vehicle,
-          timestamp: serverTimestamp(),
-        })
-      } catch (error) {
-        console.error("Failed to publish vehicle update:", error)
-      }
+    return () => {
+      if (cleanup) cleanup()
     }
-  }
+  }, [createMockSocket])
 
-  const publishIncidentUpdate = async (incident: any) => {
-    if (database === "mock") {
-      setMockData((prev) => ({
-        ...prev,
-        incidents: { ...prev.incidents, [incident.id]: incident },
-      }))
-    } else if (database) {
-      try {
-        const { ref, push, serverTimestamp } = require("firebase/database")
-        const incidentsRef = ref(database, "incidents")
-        await push(incidentsRef, {
-          ...incident,
-          timestamp: serverTimestamp(),
-        })
-      } catch (error) {
-        console.error("Failed to publish incident update:", error)
-      }
-    }
-  }
-
-  const publishTrafficUpdate = async (traffic: any) => {
-    if (database === "mock") {
-      setMockData((prev) => ({
-        ...prev,
-        traffic: traffic,
-      }))
-    } else if (database) {
-      try {
-        const { ref, set, serverTimestamp } = require("firebase/database")
-        const trafficRef = ref(database, "traffic")
-        await set(trafficRef, {
-          ...traffic,
-          timestamp: serverTimestamp(),
-        })
-      } catch (error) {
-        console.error("Failed to publish traffic update:", error)
-      }
-    }
-  }
-
-  const subscribeToVehicleUpdates = (callback: (data: any) => void) => {
-    if (database === "mock") {
-      // Mock subscription - return unsubscribe function
-      return () => {}
-    } else if (database) {
-      try {
-        const { ref, onValue } = require("firebase/database")
-        const vehiclesRef = ref(database, "vehicles")
-        const unsubscribe = onValue(vehiclesRef, (snapshot: any) => {
-          const data = snapshot.val()
-          callback(data || {})
-        })
-        return unsubscribe
-      } catch (error) {
-        console.error("Failed to subscribe to vehicle updates:", error)
-        return () => {}
-      }
-    }
-    return () => {}
-  }
-
-  const subscribeToIncidentUpdates = (callback: (data: any) => void) => {
-    if (database === "mock") {
-      // Mock subscription - return unsubscribe function
-      return () => {}
-    } else if (database) {
-      try {
-        const { ref, onValue } = require("firebase/database")
-        const incidentsRef = ref(database, "incidents")
-        const unsubscribe = onValue(incidentsRef, (snapshot: any) => {
-          const data = snapshot.val()
-          callback(data || {})
-        })
-        return unsubscribe
-      } catch (error) {
-        console.error("Failed to subscribe to incident updates:", error)
-        return () => {}
-      }
-    }
-    return () => {}
-  }
-
-  const subscribeToTrafficUpdates = (callback: (data: any) => void) => {
-    if (database === "mock") {
-      // Mock subscription - return unsubscribe function
-      return () => {}
-    } else if (database) {
-      try {
-        const { ref, onValue } = require("firebase/database")
-        const trafficRef = ref(database, "traffic")
-        const unsubscribe = onValue(trafficRef, (snapshot: any) => {
-          const data = snapshot.val()
-          callback(data || {})
-        })
-        return unsubscribe
-      } catch (error) {
-        console.error("Failed to subscribe to traffic updates:", error)
-        return () => {}
-      }
-    }
-    return () => {}
-  }
-
-  const value: SocketContextType = {
-    database,
-    isConnected,
-    publishVehicleUpdate,
-    publishIncidentUpdate,
-    publishTrafficUpdate,
-    subscribeToVehicleUpdates,
-    subscribeToIncidentUpdates,
-    subscribeToTrafficUpdates,
-  }
-
-  return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>
+  return <SocketContext.Provider value={{ socket, isConnected, connectionStatus }}>{children}</SocketContext.Provider>
 }

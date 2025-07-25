@@ -1,12 +1,11 @@
 "use client"
 
-import { createContext, useContext, useState, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 
 interface GameContextType {
   points: number
   level: number
   badges: string[]
-  notifications: number
   addPoints: (points: number) => void
   addBadge: (badge: string) => void
 }
@@ -15,7 +14,6 @@ const GameContext = createContext<GameContextType>({
   points: 0,
   level: 1,
   badges: [],
-  notifications: 0,
   addPoints: () => {},
   addBadge: () => {},
 })
@@ -29,45 +27,23 @@ interface GameProviderProps {
 }
 
 export function GameProvider({ children }: GameProviderProps) {
-  const [points, setPoints] = useState(1250)
-  const [level, setLevel] = useState(3)
-  const [badges, setBadges] = useState<string[]>(["First Report", "Traffic Helper"])
-  const [notifications, setNotifications] = useState(2)
+  const [points, setPoints] = useState(0)
+  const [level, setLevel] = useState(1)
+  const [badges, setBadges] = useState<string[]>([])
+
+  // Calculate level based on points
+  useEffect(() => {
+    const newLevel = Math.floor(points / 100) + 1
+    setLevel(newLevel)
+  }, [points])
 
   const addPoints = (newPoints: number) => {
-    setPoints((prev) => {
-      const total = prev + newPoints
-      const newLevel = Math.floor(total / 500) + 1
-      if (newLevel > level) {
-        setLevel(newLevel)
-        setNotifications((prev) => prev + 1)
-      }
-      return total
-    })
+    setPoints((prev) => prev + newPoints)
   }
 
   const addBadge = (badge: string) => {
-    setBadges((prev) => {
-      if (!prev.includes(badge)) {
-        setNotifications((prev) => prev + 1)
-        return [...prev, badge]
-      }
-      return prev
-    })
+    setBadges((prev) => [...prev, badge])
   }
 
-  return (
-    <GameContext.Provider
-      value={{
-        points,
-        level,
-        badges,
-        notifications,
-        addPoints,
-        addBadge,
-      }}
-    >
-      {children}
-    </GameContext.Provider>
-  )
+  return <GameContext.Provider value={{ points, level, badges, addPoints, addBadge }}>{children}</GameContext.Provider>
 }

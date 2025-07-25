@@ -22,7 +22,7 @@ A real-time traffic management system for Kottakkal using Firebase Realtime Data
 
 Create a `.env.local` file in the root directory with the following Firebase configuration:
 
-```env
+\`\`\`env
 NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
 NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://your_project.firebaseio.com
@@ -31,25 +31,25 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 NEXT_PUBLIC_MAPBOX_TOKEN=your_mapbox_token
-```
+\`\`\`
 
 ## Getting Started
 
 1. Clone the repository
 2. Install dependencies:
-   ```bash
+   \`\`\`bash
    npm install
    # or
    pnpm install
-   ```
+   \`\`\`
 
 3. Set up your environment variables
 4. Run the development server:
-   ```bash
+   \`\`\`bash
    npm run dev
    # or
    pnpm dev
-   ```
+   \`\`\`
 
 5. Open [http://localhost:3000](http://localhost:3000) in your browser
 

@@ -3,123 +3,106 @@
 import type React from "react"
 
 import { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { X, AlertTriangle, Car, Construction, MapPin } from "lucide-react"
+import { AlertTriangle, Car, Construction, Zap } from "lucide-react"
+
+interface Incident {
+  type: string
+  coordinates: [number, number]
+  description: string
+}
 
 interface IncidentReportModalProps {
-  location: [number, number] | null
-  onSubmit: (data: any) => void
+  location: [number, number]
+  onSubmit: (incident: Incident) => void
   onClose: () => void
 }
 
 export function IncidentReportModal({ location, onSubmit, onClose }: IncidentReportModalProps) {
   const [incidentType, setIncidentType] = useState("")
   const [description, setDescription] = useState("")
-  const [severity, setSeverity] = useState("")
 
   const incidentTypes = [
-    { value: "accident", label: "Traffic Accident", icon: Car },
-    { value: "congestion", label: "Traffic Congestion", icon: AlertTriangle },
-    { value: "roadblock", label: "Road Block", icon: Construction },
-    { value: "construction", label: "Construction Work", icon: Construction },
+    { value: "accident", label: "Traffic Accident", icon: <Car className="w-4 h-4" /> },
+    { value: "congestion", label: "Traffic Congestion", icon: <AlertTriangle className="w-4 h-4" /> },
+    { value: "roadwork", label: "Road Work", icon: <Construction className="w-4 h-4" /> },
+    { value: "breakdown", label: "Vehicle Breakdown", icon: <Car className="w-4 h-4" /> },
+    { value: "hazard", label: "Road Hazard", icon: <Zap className="w-4 h-4" /> },
   ]
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!incidentType || !description) return
+    if (!incidentType) return
 
     onSubmit({
       type: incidentType,
-      description,
-      severity,
-      location,
+      coordinates: location,
+      description: description.trim() || `${incidentType} reported at location`,
     })
   }
 
-  if (!location) return null
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">Report Incident</h2>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-2 mb-4 text-sm text-gray-600">
-          <MapPin className="w-4 h-4" />
-          <span>
-            Location: {location[1].toFixed(4)}, {location[0].toFixed(4)}
-          </span>
-        </div>
-
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Report Incident</DialogTitle>
+        </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Incident Type</label>
+            <Label htmlFor="incident-type">Incident Type</Label>
             <Select value={incidentType} onValueChange={setIncidentType}>
               <SelectTrigger>
                 <SelectValue placeholder="Select incident type" />
               </SelectTrigger>
               <SelectContent>
-                {incidentTypes.map((type) => {
-                  const IconComponent = type.icon
-                  return (
-                    <SelectItem key={type.value} value={type.value}>
-                      <div className="flex items-center gap-2">
-                        <IconComponent className="w-4 h-4" />
-                        {type.label}
-                      </div>
-                    </SelectItem>
-                  )
-                })}
+                {incidentTypes.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    <div className="flex items-center space-x-2">
+                      {type.icon}
+                      <span>{type.label}</span>
+                    </div>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Severity</label>
-            <Select value={severity} onValueChange={setSeverity}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select severity" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Low - Minor disruption</SelectItem>
-                <SelectItem value="medium">Medium - Moderate impact</SelectItem>
-                <SelectItem value="high">High - Major disruption</SelectItem>
-                <SelectItem value="critical">Critical - Emergency</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">Description</label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe the incident..."
-              rows={3}
-              required
+            <Label htmlFor="location">Location</Label>
+            <Input
+              id="location"
+              value={`${location[1].toFixed(4)}, ${location[0].toFixed(4)}`}
+              disabled
+              className="bg-gray-50"
             />
           </div>
 
-          <div className="flex gap-2 pt-4">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1 bg-transparent">
+          <div>
+            <Label htmlFor="description">Description (Optional)</Label>
+            <Textarea
+              id="description"
+              placeholder="Provide additional details about the incident..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+            />
+          </div>
+
+          <div className="flex justify-end space-x-2">
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" disabled={!incidentType || !description}>
+            <Button type="submit" disabled={!incidentType}>
               Report Incident
             </Button>
           </div>
         </form>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

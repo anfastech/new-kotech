@@ -3,418 +3,259 @@
 import { useEffect, useRef, useState } from "react"
 import { useSocket } from "@/components/providers/socket-provider"
 import { MapControls } from "./map-controls"
-import { IncidentReportModal } from "./incident-report-modal"
 import { VehicleInfoPanel } from "./vehicle-info-panel"
+import { IncidentReportModal } from "./incident-report-modal"
 import { TrafficLegend } from "./traffic-legend"
-
-// Declare mapboxgl as global
-declare global {
-  interface Window {
-    mapboxgl: any
-  }
-}
-
-// Kottakkal coordinates
-const KOTTAKKAL_CENTER: [number, number] = [75.9064, 10.9847]
+import { useNotifications } from "@/components/notifications/notification-provider"
 
 interface Vehicle {
   id: string
   type: "ambulance" | "fire" | "school_bus" | "city_bus" | "normal"
   coordinates: [number, number]
   status: string
-  route?: [number, number][]
+  timestamp: number
 }
 
 interface Incident {
   id: string
-  type: "accident" | "congestion" | "roadblock" | "construction"
+  type: string
   coordinates: [number, number]
   description: string
-  votes: number
-  timestamp: Date
+  timestamp: number
 }
 
 export function MapComponent() {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const map = useRef<any>(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
+  const mapRef = useRef<HTMLDivElement>(null)
+  const mapInstanceRef = useRef<any>(null)
+  const markersRef = useRef<{ [key: string]: any }>({})
+  const [isMapLoaded, setIsMapLoaded] = useState(false)
+  const [isMapboxLoaded, setIsMapboxLoaded] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
-
-  const {
-    database,
-    isConnected,
-    publishVehicleUpdate,
-    publishIncidentUpdate,
-    subscribeToVehicleUpdates,
-    subscribeToIncidentUpdates,
-    subscribeToTrafficUpdates,
-  } = useSocket()
-
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [incidents, setIncidents] = useState<Incident[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [showIncidentModal, setShowIncidentModal] = useState(false)
-  const [reportLocation, setReportLocation] = useState<[number, number] | null>(null)
-  const [activeLayer, setActiveLayer] = useState<string>("all")
+  const [incidentLocation, setIncidentLocation] = useState<[number, number] | null>(null)
+  const [visibleLayers, setVisibleLayers] = useState({
+    ambulance: true,
+    fire: true,
+    school_bus: true,
+    city_bus: true,
+    normal: true,
+  })
 
-  // Load Mapbox GL JS and CSS from CDN
+  const { socket, isConnected, connectionStatus } = useSocket()
+  const { sendNotification } = useNotifications()
+
+  // Load Mapbox GL JS from CDN
   useEffect(() => {
-    if (typeof window !== "undefined" && !window.mapboxgl) {
-      // Load CSS
-      const link = document.createElement("link")
-      link.href = "https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css"
-      link.rel = "stylesheet"
-      document.head.appendChild(link)
+    const loadMapbox = async () => {
+      try {
+        // Load CSS
+        const cssLink = document.createElement("link")
+        cssLink.rel = "stylesheet"
+        cssLink.href = "https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css"
+        document.head.appendChild(cssLink)
 
-      // Load JavaScript
-      const script = document.createElement("script")
-      script.src = "https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"
-      script.onload = () => {
-        setMapLoaded(true)
-        initializeMap()
-      }
-      script.onerror = () => {
-        setMapError("Failed to load Mapbox GL JS")
-      }
-      document.head.appendChild(script)
+        // Load JS
+        const script = document.createElement("script")
+        script.src = "https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"
+        script.onload = () => {
+          setIsMapboxLoaded(true)
+        }
+        script.onerror = () => {
+          setMapError("Failed to load Mapbox GL JS")
+        }
+        document.head.appendChild(script)
 
-      return () => {
-        if (document.head.contains(link)) document.head.removeChild(link)
-        if (document.head.contains(script)) document.head.removeChild(script)
+        return () => {
+          document.head.removeChild(cssLink)
+          document.head.removeChild(script)
+        }
+      } catch (error) {
+        setMapError("Error loading Mapbox GL JS")
       }
-    } else if (window.mapboxgl) {
-      setMapLoaded(true)
-      initializeMap()
     }
+
+    loadMapbox()
   }, [])
 
-  const initializeMap = () => {
-    if (!mapContainer.current || !window.mapboxgl) return
+  // Initialize map
+  useEffect(() => {
+    if (!isMapboxLoaded || !mapRef.current || mapInstanceRef.current) return
 
     try {
-      window.mapboxgl.accessToken =
-        process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "pk.eyJ1IjoidGVzdCIsImEiOiJjbGV0ZXN0In0.test"
+      const mapboxgl = (window as any).mapboxgl
+      if (!mapboxgl) {
+        setMapError("Mapbox GL JS not available")
+        return
+      }
 
-      map.current = new window.mapboxgl.Map({
-        container: mapContainer.current,
+      mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "pk.eyJ1IjoidGVzdCIsImEiOiJjbGV0ZXN0In0.test"
+
+      const map = new mapboxgl.Map({
+        container: mapRef.current,
         style: "mapbox://styles/mapbox/streets-v12",
-        center: KOTTAKKAL_CENTER,
-        zoom: 13,
-        pitch: 45,
-        bearing: 0,
+        center: [75.7804, 11.2588], // Kottakkal coordinates
+        zoom: 14,
       })
 
-      // Add navigation controls
-      map.current.addControl(new window.mapboxgl.NavigationControl(), "top-right")
-      map.current.addControl(
-        new window.mapboxgl.GeolocateControl({
-          positionOptions: { enableHighAccuracy: true },
-          trackUserLocation: true,
-          showUserHeading: true,
-        }),
-        "top-right",
-      )
-
-      // Initialize map layers
-      map.current.on("load", () => {
-        initializeMapLayers()
-        loadMockData()
+      map.on("load", () => {
+        setIsMapLoaded(true)
+        console.log("Map loaded successfully")
       })
 
-      // Handle right-click for incident reporting
-      map.current.on("contextmenu", (e) => {
-        setReportLocation([e.lngLat.lng, e.lngLat.lat])
+      map.on("error", (e: any) => {
+        console.error("Map error:", e)
+        setMapError("Map failed to load")
+      })
+
+      // Right-click for incident reporting
+      map.on("contextmenu", (e: any) => {
+        e.preventDefault()
+        setIncidentLocation([e.lngLat.lng, e.lngLat.lat])
         setShowIncidentModal(true)
       })
+
+      mapInstanceRef.current = map
+
+      return () => {
+        map.remove()
+        mapInstanceRef.current = null
+      }
     } catch (error) {
-      setMapError("Failed to initialize map: " + error)
+      console.error("Error initializing map:", error)
+      setMapError("Failed to initialize map")
     }
-  }
+  }, [isMapboxLoaded])
 
-  // Firebase event listeners
+  // Socket event listeners
   useEffect(() => {
-    if (!database || !isConnected) return
+    if (!socket) return
 
-    // Subscribe to vehicle updates
-    const unsubscribeVehicles = subscribeToVehicleUpdates((vehicleData: Vehicle) => {
+    const handleVehicleUpdate = (vehicle: Vehicle) => {
       setVehicles((prev) => {
-        const updated = prev.filter((v) => v.id !== vehicleData.id)
-        return [...updated, vehicleData]
+        const updated = prev.filter((v) => v.id !== vehicle.id)
+        return [...updated, vehicle]
       })
-      updateVehicleOnMap(vehicleData)
-    })
+    }
 
-    // Subscribe to incident updates
-    const unsubscribeIncidents = subscribeToIncidentUpdates((incidentData: Incident) => {
-      setIncidents((prev) => {
-        const updated = prev.filter((i) => i.id !== incidentData.id)
-        return [...updated, incidentData]
-      })
-      updateIncidentOnMap(incidentData)
-    })
+    const handleVehiclesData = (vehiclesData: Vehicle[]) => {
+      setVehicles(vehiclesData)
+    }
 
-    // Subscribe to traffic updates
-    const unsubscribeTraffic = subscribeToTrafficUpdates((trafficData: any) => {
-      updateTrafficLayer(trafficData)
-    })
+    const handleEmergencyAlert = (alert: any) => {
+      sendNotification("Emergency Alert", `${alert.type} reported at ${alert.location}`)
+    }
+
+    const handleTrafficAlert = (alert: any) => {
+      sendNotification("Traffic Alert", `Heavy congestion detected on ${alert.road}`)
+    }
+
+    socket.on("vehicle-update", handleVehicleUpdate)
+    socket.on("vehicles-data", handleVehiclesData)
+    socket.on("emergency-alert", handleEmergencyAlert)
+    socket.on("traffic-alert", handleTrafficAlert)
 
     return () => {
-      unsubscribeVehicles()
-      unsubscribeIncidents()
-      unsubscribeTraffic()
+      socket.off("vehicle-update", handleVehicleUpdate)
+      socket.off("vehicles-data", handleVehiclesData)
+      socket.off("emergency-alert", handleEmergencyAlert)
+      socket.off("traffic-alert", handleTrafficAlert)
     }
-  }, [database, isConnected])
+  }, [socket, sendNotification])
 
-  const initializeMapLayers = () => {
-    if (!map.current) return
+  // Update vehicle markers
+  useEffect(() => {
+    if (!isMapLoaded || !mapInstanceRef.current) return
 
-    // Add vehicle sources and layers
-    const vehicleTypes = ["ambulance", "fire", "school_bus", "city_bus", "normal"]
+    const mapboxgl = (window as any).mapboxgl
+    if (!mapboxgl) return
 
-    vehicleTypes.forEach((type) => {
-      // Add source
-      map.current!.addSource(`${type}-vehicles`, {
-        type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: [],
-        },
+    // Clear existing markers
+    Object.values(markersRef.current).forEach((marker: any) => marker.remove())
+    markersRef.current = {}
+
+    // Add new markers
+    vehicles.forEach((vehicle) => {
+      if (!visibleLayers[vehicle.type]) return
+
+      const color = getVehicleColor(vehicle.type)
+
+      // Create marker element
+      const el = document.createElement("div")
+      el.className = "vehicle-marker"
+      el.style.cssText = `
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background-color: ${color};
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        cursor: pointer;
+        transition: transform 0.2s;
+      `
+
+      el.addEventListener("mouseenter", () => {
+        el.style.transform = "scale(1.2)"
       })
 
-      // Add layer with custom markers
-      map.current!.addLayer({
-        id: `${type}-vehicles-layer`,
-        type: "circle",
-        source: `${type}-vehicles`,
-        paint: {
-          "circle-radius": type === "ambulance" || type === "fire" ? 8 : 6,
-          "circle-color": getVehicleColor(type),
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-        },
+      el.addEventListener("mouseleave", () => {
+        el.style.transform = "scale(1)"
       })
 
-      // Add click handler
-      map.current!.on("click", `${type}-vehicles-layer`, (e) => {
-        if (e.features && e.features[0]) {
-          const feature = e.features[0]
-          const vehicle = vehicles.find((v) => v.id === feature.properties?.id)
-          if (vehicle) {
-            setSelectedVehicle(vehicle)
-          }
-        }
+      const marker = new mapboxgl.Marker(el).setLngLat(vehicle.coordinates).addTo(mapInstanceRef.current)
+
+      // Click handler
+      el.addEventListener("click", () => {
+        setSelectedVehicle(vehicle)
       })
-    })
 
-    // Add incidents layer
-    map.current!.addSource("incidents", {
-      type: "geojson",
-      data: {
-        type: "FeatureCollection",
-        features: [],
-      },
+      markersRef.current[vehicle.id] = marker
     })
-
-    map.current!.addLayer({
-      id: "incidents-layer",
-      type: "circle",
-      source: "incidents",
-      paint: {
-        "circle-radius": 10,
-        "circle-color": "#ff4444",
-        "circle-stroke-width": 2,
-        "circle-stroke-color": "#ffffff",
-      },
-    })
-
-    // Add traffic congestion layer
-    map.current!.addSource("traffic-congestion", {
-      type: "geojson",
-      data: {
-        type: "FeatureCollection",
-        features: [],
-      },
-    })
-
-    map.current!.addLayer({
-      id: "traffic-congestion-layer",
-      type: "fill",
-      source: "traffic-congestion",
-      paint: {
-        "fill-color": ["interpolate", ["linear"], ["get", "congestion"], 0, "#00ff00", 0.5, "#ffff00", 1, "#ff0000"],
-        "fill-opacity": 0.6,
-      },
-    })
-  }
+  }, [vehicles, isMapLoaded, visibleLayers])
 
   const getVehicleColor = (type: string): string => {
-    const colors = {
-      ambulance: "#ff0000",
-      fire: "#ff4400",
-      school_bus: "#ffaa00",
-      city_bus: "#0088ff",
-      normal: "#00aa00",
-    }
-    return colors[type as keyof typeof colors] || "#666666"
-  }
-
-  const updateVehicleOnMap = (vehicle: Vehicle) => {
-    if (!map.current) return
-
-    const source = map.current.getSource(`${vehicle.type}-vehicles`) as any
-    if (source) {
-      const currentData = source._data as any
-      const features = currentData.features.filter((f: any) => f.properties.id !== vehicle.id)
-
-      features.push({
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: vehicle.coordinates,
-        },
-        properties: {
-          id: vehicle.id,
-          type: vehicle.type,
-          status: vehicle.status,
-        },
-      })
-
-      source.setData({
-        type: "FeatureCollection",
-        features,
-      })
+    switch (type) {
+      case "ambulance":
+        return "#ef4444" // red
+      case "fire":
+        return "#f97316" // orange
+      case "school_bus":
+        return "#eab308" // yellow
+      case "city_bus":
+        return "#3b82f6" // blue
+      case "normal":
+        return "#6b7280" // gray
+      default:
+        return "#6b7280"
     }
   }
 
-  const updateIncidentOnMap = (incident: Incident) => {
-    if (!map.current) return
-
-    const source = map.current.getSource("incidents") as any
-    if (source) {
-      const currentData = source._data as any
-      const features = currentData.features.filter((f: any) => f.properties.id !== incident.id)
-
-      features.push({
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: incident.coordinates,
-        },
-        properties: {
-          id: incident.id,
-          type: incident.type,
-          description: incident.description,
-          votes: incident.votes,
-        },
-      })
-
-      source.setData({
-        type: "FeatureCollection",
-        features,
-      })
+  const handleIncidentSubmit = (incident: Omit<Incident, "id" | "timestamp">) => {
+    const newIncident: Incident = {
+      ...incident,
+      id: `incident-${Date.now()}`,
+      timestamp: Date.now(),
     }
-  }
 
-  const updateTrafficLayer = (trafficData: any) => {
-    if (!map.current) return
-
-    const source = map.current.getSource("traffic-congestion") as any
-    if (source) {
-      source.setData(trafficData)
+    if (socket) {
+      socket.emit("incident-report", newIncident)
     }
-  }
 
-  const loadMockData = () => {
-    // Mock vehicles data
-    const mockVehicles: Vehicle[] = [
-      {
-        id: "amb-001",
-        type: "ambulance",
-        coordinates: [75.9064, 10.9847],
-        status: "emergency",
-        route: [
-          [75.9064, 10.9847],
-          [75.91, 10.988],
-        ],
-      },
-      {
-        id: "fire-001",
-        type: "fire",
-        coordinates: [75.908, 10.986],
-        status: "responding",
-      },
-      {
-        id: "bus-001",
-        type: "school_bus",
-        coordinates: [75.905, 10.983],
-        status: "route",
-      },
-    ]
-
-    // Publish initial vehicle data to Firebase
-    mockVehicles.forEach((vehicle) => {
-      if (publishVehicleUpdate) {
-        publishVehicleUpdate(vehicle)
-      }
-      updateVehicleOnMap(vehicle)
-    })
-    setVehicles(mockVehicles)
-
-    // Simulate real-time updates
-    setInterval(() => {
-      mockVehicles.forEach((vehicle) => {
-        // Simulate movement
-        vehicle.coordinates[0] += (Math.random() - 0.5) * 0.001
-        vehicle.coordinates[1] += (Math.random() - 0.5) * 0.001
-
-        // Publish to Firebase
-        if (publishVehicleUpdate) {
-          publishVehicleUpdate(vehicle)
-        }
-        updateVehicleOnMap(vehicle)
-      })
-    }, 3000)
-  }
-
-  const toggleLayer = (layerType: string) => {
-    if (!map.current) return
-
-    const visibility = map.current.getLayoutProperty(`${layerType}-vehicles-layer`, "visibility")
-    map.current.setLayoutProperty(
-      `${layerType}-vehicles-layer`,
-      "visibility",
-      visibility === "visible" ? "none" : "visible",
-    )
-  }
-
-  const handleIncidentReport = (incidentData: any) => {
-    if (database && reportLocation) {
-      const incident: Incident = {
-        id: `incident-${Date.now()}`,
-        type: incidentData.type,
-        coordinates: reportLocation,
-        description: incidentData.description,
-        votes: 0,
-        timestamp: new Date(),
-      }
-
-      if (publishIncidentUpdate) {
-        publishIncidentUpdate(incident)
-      }
-      setShowIncidentModal(false)
-      setReportLocation(null)
-    }
+    sendNotification("Incident Reported", `${incident.type} reported successfully`)
+    setShowIncidentModal(false)
+    setIncidentLocation(null)
   }
 
   if (mapError) {
     return (
-      <div className="flex items-center justify-center h-full bg-gray-100">
-        <div className="text-center p-8">
-          <div className="text-red-500 text-xl mb-4">Map Loading Error</div>
-          <div className="text-gray-600">{mapError}</div>
+      <div className="flex-1 flex items-center justify-center bg-gray-100">
+        <div className="text-center">
+          <div className="text-red-500 text-xl mb-2">Map Error</div>
+          <div className="text-gray-600 mb-4">{mapError}</div>
           <button
             onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
           >
             Retry
           </button>
@@ -423,10 +264,10 @@ export function MapComponent() {
     )
   }
 
-  if (!mapLoaded) {
+  if (!isMapboxLoaded) {
     return (
-      <div className="flex items-center justify-center h-full bg-gray-100">
-        <div className="text-center p-8">
+      <div className="flex-1 flex items-center justify-center bg-gray-100">
+        <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <div className="text-gray-600">Loading Mapbox GL JS...</div>
         </div>
@@ -435,32 +276,61 @@ export function MapComponent() {
   }
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={mapContainer} className="w-full h-full" />
+    <div className="flex-1 relative">
+      <div ref={mapRef} className="w-full h-full" />
 
-      <MapControls onLayerToggle={toggleLayer} activeLayer={activeLayer} onActiveLayerChange={setActiveLayer} />
+      {/* Connection Status */}
+      <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-3">
+        <div className="flex items-center space-x-2">
+          <div
+            className={`w-3 h-3 rounded-full ${
+              connectionStatus === "connected"
+                ? "bg-green-500"
+                : connectionStatus === "mock"
+                  ? "bg-yellow-500"
+                  : connectionStatus === "connecting"
+                    ? "bg-blue-500 animate-pulse"
+                    : "bg-red-500"
+            }`}
+          />
+          <span className="text-sm font-medium">
+            {connectionStatus === "connected"
+              ? "Firebase Connected"
+              : connectionStatus === "mock"
+                ? "Mock Mode"
+                : connectionStatus === "connecting"
+                  ? "Connecting..."
+                  : connectionStatus === "error"
+                    ? "Connection Error"
+                    : "Disconnected"}
+          </span>
+        </div>
+      </div>
 
+      {/* Map Controls */}
+      <MapControls
+        vehicles={vehicles}
+        visibleLayers={visibleLayers}
+        onLayerToggle={(layer, visible) => setVisibleLayers((prev) => ({ ...prev, [layer]: visible }))}
+      />
+
+      {/* Traffic Legend */}
       <TrafficLegend />
 
+      {/* Vehicle Info Panel */}
       {selectedVehicle && <VehicleInfoPanel vehicle={selectedVehicle} onClose={() => setSelectedVehicle(null)} />}
 
-      {showIncidentModal && (
+      {/* Incident Report Modal */}
+      {showIncidentModal && incidentLocation && (
         <IncidentReportModal
-          location={reportLocation}
-          onSubmit={handleIncidentReport}
+          location={incidentLocation}
+          onSubmit={handleIncidentSubmit}
           onClose={() => {
             setShowIncidentModal(false)
-            setReportLocation(null)
+            setIncidentLocation(null)
           }}
         />
       )}
-
-      <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3">
-        <div className="flex items-center space-x-2">
-          <div className={`w-3 h-3 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`} />
-          <span className="text-sm font-medium">{isConnected ? "Connected" : "Disconnected"}</span>
-        </div>
-      </div>
     </div>
   )
 }

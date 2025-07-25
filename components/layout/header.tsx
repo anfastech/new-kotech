@@ -1,53 +1,38 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Menu, Bell, Settings, User, Search } from "lucide-react"
-import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { useSocket } from "@/components/providers/socket-provider"
+import { useGame } from "@/components/gamification/game-provider"
+import { useNotifications } from "@/components/notifications/notification-provider"
+import { Bell, Trophy, Wifi, WifiOff } from "lucide-react"
 
-interface HeaderProps {
-  onMenuClick: () => void
-}
+export function Header() {
+  const { isConnected, connectionStatus } = useSocket()
+  const { points, level } = useGame()
+  const { requestPermission } = useNotifications()
 
-export function Header({ onMenuClick }: HeaderProps) {
   return (
-    <header className="bg-white border-b border-gray-200 px-4 py-3">
+    <header className="bg-white border-b border-gray-200 px-6 py-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={onMenuClick} className="lg:hidden">
-            <Menu className="w-5 h-5" />
-          </Button>
-
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">ST</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">Smart Traffic Kottakkal</h1>
-              <p className="text-xs text-gray-600">Real-time Traffic Management System</p>
-            </div>
-          </div>
+        <div className="flex items-center space-x-4">
+          <h1 className="text-2xl font-bold text-gray-900">Smart Traffic Kottakkal</h1>
+          <Badge variant={isConnected ? "default" : "destructive"}>
+            {isConnected ? <Wifi className="w-3 h-3 mr-1" /> : <WifiOff className="w-3 h-3 mr-1" />}
+            {connectionStatus}
+          </Badge>
         </div>
 
-        <div className="hidden md:flex items-center gap-4 flex-1 max-w-md mx-8">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input placeholder="Search vehicles, routes, incidents..." className="pl-10" />
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Trophy className="w-4 h-4 text-yellow-500" />
+            <span className="text-sm font-medium">Level {level}</span>
+            <Badge variant="secondary">{points} pts</Badge>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="relative">
-            <Bell className="w-5 h-5" />
-            <Badge className="absolute -top-1 -right-1 w-5 h-5 p-0 flex items-center justify-center text-xs">3</Badge>
-          </Button>
-
-          <Button variant="ghost" size="sm">
-            <Settings className="w-5 h-5" />
-          </Button>
-
-          <Button variant="ghost" size="sm">
-            <User className="w-5 h-5" />
+          <Button variant="outline" size="sm" onClick={requestPermission}>
+            <Bell className="w-4 h-4 mr-2" />
+            Notifications
           </Button>
         </div>
       </div>

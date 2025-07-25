@@ -1,86 +1,107 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { useState } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { X, Map, BarChart3, AlertTriangle, Route, Trophy, Settings, Users, Calendar, FileText } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useSocket } from "@/components/providers/socket-provider"
+import { BarChart3, AlertTriangle, Users, Settings, ChevronLeft, ChevronRight } from "lucide-react"
+import Link from "next/link"
 
-interface SidebarProps {
-  isOpen: boolean
-  onClose: () => void
-}
+export function Sidebar() {
+  const [isCollapsed, setIsCollapsed] = useState(false)
+  const { connectionStatus } = useSocket()
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const menuItems = [
-    { icon: Map, label: "Live Map", active: true, badge: null },
-    { icon: BarChart3, label: "Analytics", active: false, badge: null },
-    { icon: AlertTriangle, label: "Incidents", active: false, badge: 5 },
-    { icon: Route, label: "Routes", active: false, badge: null },
-    { icon: Users, label: "Vehicles", active: false, badge: 68 },
-    { icon: Trophy, label: "Leaderboard", active: false, badge: null },
-    { icon: Calendar, label: "Schedule", active: false, badge: 3 },
-    { icon: FileText, label: "Reports", active: false, badge: null },
-    { icon: Settings, label: "Settings", active: false, badge: null },
-  ]
-
-  if (!isOpen) return null
+  if (isCollapsed) {
+    return (
+      <div className="w-16 bg-gray-50 border-r border-gray-200 p-4">
+        <Button variant="ghost" size="sm" onClick={() => setIsCollapsed(false)} className="w-full">
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+    )
+  }
 
   return (
-    <div className="fixed inset-0 z-50 lg:relative lg:inset-auto">
-      <div className="absolute inset-0 bg-black/50 lg:hidden" onClick={onClose} />
-
-      <div className="relative w-80 h-full bg-white border-r border-gray-200 flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">Navigation</h2>
-          <Button variant="ghost" size="sm" onClick={onClose} className="lg:hidden">
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-
-        <nav className="flex-1 p-4">
-          <div className="space-y-2">
-            {menuItems.map((item, index) => {
-              const IconComponent = item.icon
-              return (
-                <Button
-                  key={index}
-                  variant={item.active ? "default" : "ghost"}
-                  className="w-full justify-start"
-                  size="sm"
-                >
-                  <IconComponent className="w-4 h-4 mr-3" />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {item.badge && (
-                    <Badge variant="secondary" className="ml-2">
-                      {item.badge}
-                    </Badge>
-                  )}
-                </Button>
-              )
-            })}
-          </div>
-        </nav>
-
-        <div className="p-4 border-t">
-          <Card className="p-3">
-            <h3 className="font-semibold text-sm mb-2">System Status</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span>Active Vehicles:</span>
-                <span className="font-medium">68</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Emergency Units:</span>
-                <span className="font-medium text-red-600">5</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Traffic Flow:</span>
-                <span className="font-medium text-green-600">Good</span>
-              </div>
-            </div>
-          </Card>
-        </div>
+    <div className="w-80 bg-gray-50 border-r border-gray-200 p-4 overflow-y-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Control Panel</h2>
+        <Button variant="ghost" size="sm" onClick={() => setIsCollapsed(true)}>
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
       </div>
+
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="alerts">Alerts</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center">
+                <BarChart3 className="w-4 h-4 mr-2" />
+                System Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm">Connection:</span>
+                <Badge variant={connectionStatus === "connected" ? "default" : "secondary"}>{connectionStatus}</Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm">Active Vehicles:</span>
+                <Badge variant="outline">5</Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm">Incidents:</span>
+                <Badge variant="outline">0</Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center">
+                <Users className="w-4 h-4 mr-2" />
+                Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Link href="/analytics" className="block">
+                <Button variant="outline" className="w-full justify-start bg-transparent">
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  View Analytics
+                </Button>
+              </Link>
+              <Button variant="outline" className="w-full justify-start bg-transparent">
+                <AlertTriangle className="w-4 h-4 mr-2" />
+                Emergency Alert
+              </Button>
+              <Button variant="outline" className="w-full justify-start bg-transparent">
+                <Settings className="w-4 h-4 mr-2" />
+                Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="alerts" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center">
+                <AlertTriangle className="w-4 h-4 mr-2" />
+                Recent Alerts
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-sm text-gray-500 text-center py-4">No recent alerts</div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
