@@ -24,10 +24,20 @@ interface Incident {
   timestamp: number
 }
 
+interface UserLocation {
+  coordinates: [number, number]
+  accuracy: number
+  heading?: number
+  speed?: number
+  timestamp: number
+}
+
 export function MapComponent() {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<{ [key: string]: any }>({})
+  const userMarkerRef = useRef<any>(null)
+  const userLocationWatchRef = useRef<number | null>(null)
   const [isMapLoaded, setIsMapLoaded] = useState(false)
   const [isMapboxLoaded, setIsMapboxLoaded] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
@@ -45,6 +55,13 @@ export function MapComponent() {
   const [showRoutes, setShowRoutes] = useState(false)
   const [vehicleRoutes, setVehicleRoutes] = useState<{ [key: string]: any }>({})
   const routesRef = useRef<{ [key: string]: any }>({})
+
+  // User location states
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
+  const [isTrackingUser, setIsTrackingUser] = useState(false)
+  const [locationPermission, setLocationPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown")
+  const [autoCenter, setAutoCenter] = useState(false)
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   const { socket, isConnected, connectionStatus } = useSocket()
   const { sendNotification } = useNotifications()
@@ -82,6 +99,24 @@ export function MapComponent() {
     loadMapbox()
   }, [])
 
+  // Check geolocation permission on mount
+  useEffect(() => {
+    if ("permissions" in navigator) {
+      navigator.permissions
+        .query({ name: "geolocation" })
+        .then((result) => {
+          setLocationPermission(result.state as "granted" | "denied" | "prompt")
+
+          result.addEventListener("change", () => {
+            setLocationPermission(result.state as "granted" | "denied" | "prompt")
+          })
+        })
+        .catch(() => {
+          setLocationPermission("unknown")
+        })
+    }
+  }, [])
+
   // Initialize map
   useEffect(() => {
     if (!isMapboxLoaded || !mapRef.current || mapInstanceRef.current) return
@@ -102,90 +137,135 @@ export function MapComponent() {
       mapboxgl.accessToken = mapboxToken
 
       // Malappuram district bounds (approximate coordinates)
-      const malappuramBounds= [
-        [75.9988, 11.0001], // Southwest coordinates
-        [76.0029, 11.0016]  // Northeast coordinates
+      const malappuramBounds = [
+        [75.5, 10.8], // Southwest coordinates
+        [76.2, 11.8], // Northeast coordinates
       ]
 
       const map = new mapboxgl.Map({
         container: mapRef.current,
         style: "mapbox://styles/mapbox/streets-v12",
-        center: [75.9988, 11.0001], // Kottakkal coordinates (center of Malappuram)
-        zoom: 16,
+        center: [75.7804, 11.2588], // Kottakkal coordinates (center of Malappuram)
+        zoom: 14,
         maxBounds: malappuramBounds, // Restrict view to Malappuram
-        maxZoom: 17, // Limit maximum zoom level
-        minZoom: 13,  // Limit minimum zoom level
+        maxZoom: 18, // Limit maximum zoom level
+        minZoom: 10, // Limit minimum zoom level
       })
 
       // Add navigation controls
-      map.addControl(new mapboxgl.NavigationControl(), 'top-left')
+      map.addControl(new mapboxgl.NavigationControl(), "top-left")
 
       // Add scale control
-      map.addControl(new mapboxgl.ScaleControl({
-        maxWidth: 80,
-        unit: 'metric'
-      }), 'bottom-left')
+      map.addControl(
+        new mapboxgl.ScaleControl({
+          maxWidth: 80,
+          unit: "metric",
+        }),
+        "bottom-left",
+      )
 
-      // Restrict map movement to bounds
-      map.on('moveend', () => {
-        const center = map.getCenter()
-        const bounds = map.getBounds()
-        
-        // Check if the view is within Malappuram bounds
-        if (center.lng < malappuramBounds[0][0] || center.lng > malappuramBounds[1][0] ||
-            center.lat < malappuramBounds[0][1] || center.lat > malappuramBounds[1][1]) {
-          // If outside bounds, move back to center of Malappuram
-          map.flyTo({
-            center: [75.7804, 11.2588],
-            zoom: 10,
-            duration: 1000
-          })
+      // Add geolocate control
+      const geolocateControl = new mapboxgl.GeolocateControl({
+        positionOptions: {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000,
+        },
+        trackUserLocation: true,
+        showUserHeading: true,
+        showAccuracyCircle: true,
+        showUserLocation: true,
+      })
+
+      map.addControl(geolocateControl, "top-left")
+
+      // Listen to geolocate events
+      geolocateControl.on("geolocate", (e: any) => {
+        const newLocation: UserLocation = {
+          coordinates: [e.coords.longitude, e.coords.latitude],
+          accuracy: e.coords.accuracy,
+          heading: e.coords.heading,
+          speed: e.coords.speed,
+          timestamp: Date.now(),
         }
+        setUserLocation(newLocation)
+        setLocationError(null)
+
+        // Send notification on first location
+        if (!userLocation) {
+          sendNotification("Location Found", "Your current location has been detected")
+        }
+      })
+
+      geolocateControl.on("trackuserlocationstart", () => {
+        setIsTrackingUser(true)
+        setAutoCenter(true)
+      })
+
+      geolocateControl.on("trackuserlocationend", () => {
+        setIsTrackingUser(false)
+        setAutoCenter(false)
+      })
+
+      geolocateControl.on("error", (e: any) => {
+        console.error("Geolocation error:", e)
+        setLocationError(e.message || "Failed to get location")
+        setIsTrackingUser(false)
+        sendNotification("Location Error", "Unable to access your location")
       })
 
       map.on("load", () => {
         setIsMapLoaded(true)
         console.log("Map loaded successfully with Malappuram bounds")
-        
+
         // Add a subtle border to show the district boundary
-        map.addSource('malappuram-boundary', {
-          type: 'geojson',
+        map.addSource("malappuram-boundary", {
+          type: "geojson",
           data: {
-            type: 'Feature',
+            type: "Feature",
             properties: {},
             geometry: {
-              type: 'Polygon',
-              coordinates: [[
-                [75.9988, 12.9999], // Southwest
-                [76.0029, 12.9999], // Southeast
-                [76.0029, 12.0016], // Northeast
-                [75.9988, 12.0016], // Northwest
-                [75.9988, 12.9999]  // Close the polygon
-              ]]
-            }
-          }
+              type: "Polygon",
+              coordinates: [
+                [
+                  [75.5, 10.8], // Southwest
+                  [76.2, 10.8], // Southeast
+                  [76.2, 11.8], // Northeast
+                  [75.5, 11.8], // Northwest
+                  [75.5, 10.8], // Close the polygon
+                ],
+              ],
+            },
+          },
         })
 
         map.addLayer({
-          id: 'malappuram-boundary-fill',
-          type: 'fill',
-          source: 'malappuram-boundary',
+          id: "malappuram-boundary-fill",
+          type: "fill",
+          source: "malappuram-boundary",
           paint: {
-            'fill-color': '#3b82f6',
-            'fill-opacity': 0.05
-          }
+            "fill-color": "#3b82f6",
+            "fill-opacity": 0.05,
+          },
         })
 
         map.addLayer({
-          id: 'malappuram-boundary-line',
-          type: 'line',
-          source: 'malappuram-boundary',
+          id: "malappuram-boundary-line",
+          type: "line",
+          source: "malappuram-boundary",
           paint: {
-            'line-color': '#3b82f6',
-            'line-width': 2,
-            'line-opacity': 0.3
-          }
+            "line-color": "#3b82f6",
+            "line-width": 2,
+            "line-opacity": 0.3,
+          },
         })
+
+        // Auto-request location permission if not already granted
+        if (locationPermission === "prompt" || locationPermission === "unknown") {
+          setTimeout(() => {
+            geolocateControl.trigger()
+          }, 1000)
+        }
       })
 
       map.on("error", (e: any) => {
@@ -197,10 +277,14 @@ export function MapComponent() {
       map.on("contextmenu", (e: any) => {
         e.preventDefault()
         const lngLat = e.lngLat
-        
+
         // Check if the clicked location is within Malappuram bounds
-        if (lngLat.lng >= malappuramBounds[0][0] && lngLat.lng <= malappuramBounds[1][0] &&
-            lngLat.lat >= malappuramBounds[0][1] && lngLat.lat <= malappuramBounds[1][1]) {
+        if (
+          lngLat.lng >= malappuramBounds[0][0] &&
+          lngLat.lng <= malappuramBounds[1][0] &&
+          lngLat.lat >= malappuramBounds[0][1] &&
+          lngLat.lat <= malappuramBounds[1][1]
+        ) {
           setIncidentLocation([lngLat.lng, lngLat.lat])
           setShowIncidentModal(true)
         } else {
@@ -212,6 +296,9 @@ export function MapComponent() {
       mapInstanceRef.current = map
 
       return () => {
+        if (userLocationWatchRef.current) {
+          navigator.geolocation.clearWatch(userLocationWatchRef.current)
+        }
         map.remove()
         mapInstanceRef.current = null
       }
@@ -219,7 +306,195 @@ export function MapComponent() {
       console.error("Error initializing map:", error)
       setMapError("Failed to initialize map. Please check your configuration.")
     }
-  }, [isMapboxLoaded, sendNotification])
+  }, [isMapboxLoaded, sendNotification, locationPermission, userLocation])
+
+  // Manual location tracking using browser geolocation API
+  const startLocationTracking = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by this browser")
+      sendNotification("Location Error", "Geolocation is not supported by this browser")
+      return
+    }
+
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 5000,
+    }
+
+    const successCallback = (position: GeolocationPosition) => {
+      const newLocation: UserLocation = {
+        coordinates: [position.coords.longitude, position.coords.latitude],
+        accuracy: position.coords.accuracy,
+        heading: position.coords.heading || undefined,
+        speed: position.coords.speed || undefined,
+        timestamp: Date.now(),
+      }
+
+      setUserLocation(newLocation)
+      setLocationError(null)
+
+      // Update custom user marker
+      updateUserLocationMarker(newLocation)
+
+      // Auto-center map if enabled
+      if (autoCenter && mapInstanceRef.current) {
+        mapInstanceRef.current.flyTo({
+          center: newLocation.coordinates,
+          zoom: 16,
+          duration: 1000,
+        })
+      }
+
+      // Send location to Firebase if connected
+      if (socket) {
+        socket.emit("user-location-update", {
+          userId: "current-user",
+          location: newLocation,
+        })
+      }
+    }
+
+    const errorCallback = (error: GeolocationPositionError) => {
+      let errorMessage = "Unknown location error"
+      switch (error.code) {
+        case error.PERMISSION_DENIED:
+          errorMessage = "Location access denied by user"
+          setLocationPermission("denied")
+          break
+        case error.POSITION_UNAVAILABLE:
+          errorMessage = "Location information unavailable"
+          break
+        case error.TIMEOUT:
+          errorMessage = "Location request timed out"
+          break
+      }
+
+      setLocationError(errorMessage)
+      setIsTrackingUser(false)
+      sendNotification("Location Error", errorMessage)
+    }
+
+    // Get current position first
+    navigator.geolocation.getCurrentPosition(successCallback, errorCallback, options)
+
+    // Start watching position
+    const watchId = navigator.geolocation.watchPosition(successCallback, errorCallback, options)
+    userLocationWatchRef.current = watchId
+    setIsTrackingUser(true)
+  }
+
+  // Stop location tracking
+  const stopLocationTracking = () => {
+    if (userLocationWatchRef.current) {
+      navigator.geolocation.clearWatch(userLocationWatchRef.current)
+      userLocationWatchRef.current = null
+    }
+    setIsTrackingUser(false)
+    setAutoCenter(false)
+
+    // Remove custom user marker
+    if (userMarkerRef.current) {
+      userMarkerRef.current.remove()
+      userMarkerRef.current = null
+    }
+  }
+
+  // Update user location marker
+  const updateUserLocationMarker = (location: UserLocation) => {
+    if (!mapInstanceRef.current) return
+
+    const mapboxgl = (window as any).mapboxgl
+    if (!mapboxgl) return
+
+    // Remove existing marker
+    if (userMarkerRef.current) {
+      userMarkerRef.current.remove()
+    }
+
+    // Create user location marker element
+    const el = document.createElement("div")
+    el.className = "user-location-marker"
+    el.style.cssText = `
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: #3b82f6;
+      border: 3px solid white;
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+      position: relative;
+      animation: pulse 2s infinite;
+    `
+
+    // Add pulsing animation
+    const style = document.createElement("style")
+    style.textContent = `
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+      }
+    `
+    document.head.appendChild(style)
+
+    // Add direction indicator if heading is available
+    if (location.heading !== undefined && location.heading !== null) {
+      const arrow = document.createElement("div")
+      arrow.style.cssText = `
+        position: absolute;
+        top: -8px;
+        left: 50%;
+        transform: translateX(-50%) rotate(${location.heading}deg);
+        width: 0;
+        height: 0;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-bottom: 8px solid #3b82f6;
+      `
+      el.appendChild(arrow)
+    }
+
+    // Create marker
+    const marker = new mapboxgl.Marker(el).setLngLat(location.coordinates).addTo(mapInstanceRef.current)
+
+    // Add popup with location info
+    const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
+        <div class="p-2">
+          <h3 class="font-semibold text-sm mb-1">Your Location</h3>
+          <p class="text-xs text-gray-600">Accuracy: ${Math.round(location.accuracy)}m</p>
+          ${location.speed ? `<p class="text-xs text-gray-600">Speed: ${Math.round(location.speed * 3.6)} km/h</p>` : ""}
+          <p class="text-xs text-gray-500">${new Date(location.timestamp).toLocaleTimeString()}</p>
+        </div>
+      `)
+
+    marker.setPopup(popup)
+    userMarkerRef.current = marker
+  }
+
+  // Toggle auto-center
+  const toggleAutoCenter = () => {
+    setAutoCenter(!autoCenter)
+    if (!autoCenter && userLocation && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo({
+        center: userLocation.coordinates,
+        zoom: 16,
+        duration: 1000,
+      })
+    }
+  }
+
+  // Center map on user location
+  const centerOnUser = () => {
+    if (userLocation && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo({
+        center: userLocation.coordinates,
+        zoom: 16,
+        duration: 1000,
+      })
+    } else if (!userLocation) {
+      sendNotification("Location Error", "User location not available")
+    }
+  }
 
   // Socket event listeners
   useEffect(() => {
@@ -271,7 +546,7 @@ export function MapComponent() {
     // Add new markers
     vehicles.forEach((vehicle) => {
       if (!visibleLayers[vehicle.type]) return
-      
+
       // Only show vehicles within Malappuram bounds
       if (!isWithinMalappuramBounds(vehicle.coordinates)) {
         console.log(`Vehicle ${vehicle.id} outside Malappuram bounds, skipping`)
@@ -307,9 +582,9 @@ export function MapComponent() {
       // Click handler
       el.addEventListener("click", () => {
         setSelectedVehicle(vehicle)
-        
+
         // Show route for ambulances
-        if (vehicle.type === 'ambulance') {
+        if (vehicle.type === "ambulance") {
           calculateRoute(vehicle)
         }
       })
@@ -339,13 +614,15 @@ export function MapComponent() {
   const isWithinMalappuramBounds = (coordinates: [number, number]): boolean => {
     const malappuramBounds = [
       [75.5, 10.8], // Southwest coordinates
-      [76.2, 11.8]  // Northeast coordinates
+      [76.2, 11.8], // Northeast coordinates
     ]
-    
-    return coordinates[0] >= malappuramBounds[0][0] && 
-           coordinates[0] <= malappuramBounds[1][0] && 
-           coordinates[1] >= malappuramBounds[0][1] && 
-           coordinates[1] <= malappuramBounds[1][1]
+
+    return (
+      coordinates[0] >= malappuramBounds[0][0] &&
+      coordinates[0] <= malappuramBounds[1][0] &&
+      coordinates[1] >= malappuramBounds[0][1] &&
+      coordinates[1] <= malappuramBounds[1][1]
+    )
   }
 
   // Reset map view to Malappuram center
@@ -353,8 +630,8 @@ export function MapComponent() {
     if (mapInstanceRef.current) {
       mapInstanceRef.current.flyTo({
         center: [75.7804, 11.2588], // Kottakkal coordinates (center of Malappuram)
-        zoom: 10,
-        duration: 1000
+        zoom: 14,
+        duration: 1000,
       })
     }
   }
@@ -367,21 +644,21 @@ export function MapComponent() {
       // If no destination provided, use a default destination in Kottakkal
       const endPoint = destination || [75.7854, 11.2638] // Default destination
 
-      const response = await fetch('/api/routes', {
-        method: 'POST',
+      const response = await fetch("/api/routes", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           start: vehicle.coordinates,
           end: endPoint,
           vehicle_type: vehicle.type,
-          avoid_congestion: true
-        })
+          avoid_congestion: true,
+        }),
       })
 
       const data = await response.json()
-      
+
       if (data.success && data.route) {
         // Remove existing route for this vehicle
         if (routesRef.current[vehicle.id]) {
@@ -391,59 +668,61 @@ export function MapComponent() {
 
         // Add new route
         mapInstanceRef.current.addSource(`route-${vehicle.id}`, {
-          type: 'geojson',
+          type: "geojson",
           data: {
-            type: 'Feature',
+            type: "Feature",
             properties: {},
-            geometry: data.route.geometry
-          }
+            geometry: data.route.geometry,
+          },
         })
 
-        const routeColor = vehicle.type === 'ambulance' ? '#ef4444' : 
-                          vehicle.type === 'fire' ? '#f97316' : '#3b82f6'
+        const routeColor = vehicle.type === "ambulance" ? "#ef4444" : vehicle.type === "fire" ? "#f97316" : "#3b82f6"
 
         mapInstanceRef.current.addLayer({
           id: `route-${vehicle.id}`,
-          type: 'line',
+          type: "line",
           source: `route-${vehicle.id}`,
           layout: {
-            'line-join': 'round',
-            'line-cap': 'round'
+            "line-join": "round",
+            "line-cap": "round",
           },
           paint: {
-            'line-color': routeColor,
-            'line-width': 4,
-            'line-opacity': 0.8
-          }
+            "line-color": routeColor,
+            "line-width": 4,
+            "line-opacity": 0.8,
+          },
         })
 
         routesRef.current[vehicle.id] = {
           source: `route-${vehicle.id}`,
           layer: `route-${vehicle.id}`,
-          data: data.route
+          data: data.route,
         }
 
-        setVehicleRoutes(prev => ({
+        setVehicleRoutes((prev) => ({
           ...prev,
-          [vehicle.id]: data.route
+          [vehicle.id]: data.route,
         }))
 
         // Fit map to show the entire route
         const coordinates = data.route.geometry.coordinates
         if (coordinates.length > 0) {
-          const bounds = coordinates.reduce((bounds: any, coord: [number, number]) => {
-            return bounds.extend(coord)
-          }, new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0]))
+          const bounds = coordinates.reduce(
+            (bounds: any, coord: [number, number]) => {
+              return bounds.extend(coord)
+            },
+            new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0]),
+          )
 
           mapInstanceRef.current.fitBounds(bounds, {
             padding: 50,
-            duration: 1000
+            duration: 1000,
           })
         }
       }
     } catch (error) {
-      console.error('Error calculating route:', error)
-      sendNotification('Route Error', 'Failed to calculate route for vehicle')
+      console.error("Error calculating route:", error)
+      sendNotification("Route Error", "Failed to calculate route for vehicle")
     }
   }
 
@@ -451,7 +730,7 @@ export function MapComponent() {
   const toggleRoutes = () => {
     if (showRoutes) {
       // Remove all routes
-      Object.keys(routesRef.current).forEach(vehicleId => {
+      Object.keys(routesRef.current).forEach((vehicleId) => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.removeLayer(`route-${vehicleId}`)
           mapInstanceRef.current.removeSource(`route-${vehicleId}`)
@@ -461,9 +740,11 @@ export function MapComponent() {
       setVehicleRoutes({})
     } else {
       // Calculate routes for all ambulances
-      vehicles.filter(v => v.type === 'ambulance').forEach(vehicle => {
-        calculateRoute(vehicle)
-      })
+      vehicles
+        .filter((v) => v.type === "ambulance")
+        .forEach((vehicle) => {
+          calculateRoute(vehicle)
+        })
     }
     setShowRoutes(!showRoutes)
   }
@@ -544,6 +825,56 @@ export function MapComponent() {
         </div>
       </div>
 
+      {/* User Location Controls */}
+      <div className="absolute top-20 right-4 bg-white rounded-lg shadow-lg p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Location Tracking</span>
+          <div className={`w-3 h-3 rounded-full ${isTrackingUser ? "bg-green-500" : "bg-gray-400"}`} />
+        </div>
+
+        {userLocation && (
+          <div className="text-xs text-gray-600">
+            <div>Accuracy: {Math.round(userLocation.accuracy)}m</div>
+            {userLocation.speed && <div>Speed: {Math.round(userLocation.speed * 3.6)} km/h</div>}
+          </div>
+        )}
+
+        {locationError && <div className="text-xs text-red-600">{locationError}</div>}
+
+        <div className="flex flex-col space-y-1">
+          <button
+            onClick={isTrackingUser ? stopLocationTracking : startLocationTracking}
+            className={`px-3 py-1 text-xs rounded ${
+              isTrackingUser ? "bg-red-500 text-white hover:bg-red-600" : "bg-blue-500 text-white hover:bg-blue-600"
+            }`}
+          >
+            {isTrackingUser ? "Stop Tracking" : "Start Tracking"}
+          </button>
+
+          {userLocation && (
+            <>
+              <button
+                onClick={centerOnUser}
+                className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+              >
+                Center on Me
+              </button>
+
+              <button
+                onClick={toggleAutoCenter}
+                className={`px-3 py-1 text-xs rounded ${
+                  autoCenter
+                    ? "bg-orange-500 text-white hover:bg-orange-600"
+                    : "bg-gray-500 text-white hover:bg-gray-600"
+                }`}
+              >
+                Auto-Center: {autoCenter ? "ON" : "OFF"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Malappuram District Indicator */}
       <div className="absolute top-4 left-4 bg-blue-50 border border-blue-200 rounded-lg shadow-lg p-3">
         <div className="flex items-center space-x-2">
@@ -561,6 +892,13 @@ export function MapComponent() {
         onResetView={resetMapView}
         showRoutes={showRoutes}
         onToggleRoutes={toggleRoutes}
+        userLocation={userLocation}
+        isTrackingUser={isTrackingUser}
+        onStartTracking={startLocationTracking}
+        onStopTracking={stopLocationTracking}
+        onCenterOnUser={centerOnUser}
+        autoCenter={autoCenter}
+        onToggleAutoCenter={toggleAutoCenter}
       />
 
       {/* Traffic Legend */}
@@ -568,11 +906,12 @@ export function MapComponent() {
 
       {/* Vehicle Info Panel */}
       {selectedVehicle && (
-        <VehicleInfoPanel 
-          vehicle={selectedVehicle} 
+        <VehicleInfoPanel
+          vehicle={selectedVehicle}
           onClose={() => setSelectedVehicle(null)}
           routeData={vehicleRoutes[selectedVehicle.id]}
-          onShowRoute={() => selectedVehicle.type === 'ambulance' && calculateRoute(selectedVehicle)}
+          onShowRoute={() => selectedVehicle.type === "ambulance" && calculateRoute(selectedVehicle)}
+          userLocation={userLocation}
         />
       )}
 
@@ -585,6 +924,7 @@ export function MapComponent() {
             setShowIncidentModal(false)
             setIncidentLocation(null)
           }}
+          userLocation={userLocation}
         />
       )}
     </div>
