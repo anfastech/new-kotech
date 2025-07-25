@@ -5,8 +5,8 @@ const incidents = [
   {
     id: "inc-001",
     type: "accident",
-    coordinates: [75.907, 10.985],
-    description: "Minor collision between two vehicles",
+    coordinates: [75.7814, 11.2598],
+    description: "Minor collision between two vehicles near Kottakkal market",
     severity: "medium",
     votes: 5,
     status: "active",
@@ -15,8 +15,8 @@ const incidents = [
   {
     id: "inc-002",
     type: "congestion",
-    coordinates: [75.909, 10.987],
-    description: "Heavy traffic due to road construction",
+    coordinates: [75.7824, 11.2608],
+    description: "Heavy traffic due to road construction in Kottakkal",
     severity: "high",
     votes: 12,
     status: "active",

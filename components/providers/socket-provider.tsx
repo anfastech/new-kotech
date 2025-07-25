@@ -63,10 +63,11 @@ export function SocketProvider({ children }: SocketProviderProps) {
   // Mock data for development
   const mockVehicles = [
     { id: "amb-001", type: "ambulance", coordinates: [75.7804, 11.2588], status: "active", timestamp: Date.now() },
-    { id: "fire-001", type: "fire", coordinates: [75.7814, 11.2598], status: "active", timestamp: Date.now() },
-    { id: "bus-001", type: "school_bus", coordinates: [75.7824, 11.2608], status: "active", timestamp: Date.now() },
-    { id: "bus-002", type: "city_bus", coordinates: [75.7834, 11.2618], status: "active", timestamp: Date.now() },
-    { id: "car-001", type: "normal", coordinates: [75.7844, 11.2628], status: "active", timestamp: Date.now() },
+    { id: "amb-002", type: "ambulance", coordinates: [75.7814, 11.2598], status: "emergency", timestamp: Date.now() },
+    { id: "fire-001", type: "fire", coordinates: [75.7824, 11.2608], status: "active", timestamp: Date.now() },
+    { id: "bus-001", type: "school_bus", coordinates: [75.7834, 11.2618], status: "active", timestamp: Date.now() },
+    { id: "bus-002", type: "city_bus", coordinates: [75.7844, 11.2628], status: "active", timestamp: Date.now() },
+    { id: "car-001", type: "normal", coordinates: [75.7854, 11.2638], status: "active", timestamp: Date.now() },
   ]
 
   // Create mock socket

@@ -16,9 +16,11 @@ interface Vehicle {
 interface VehicleInfoPanelProps {
   vehicle: Vehicle
   onClose: () => void
+  routeData?: any
+  onShowRoute?: () => void
 }
 
-export function VehicleInfoPanel({ vehicle, onClose }: VehicleInfoPanelProps) {
+export function VehicleInfoPanel({ vehicle, onClose, routeData, onShowRoute }: VehicleInfoPanelProps) {
   const getVehicleIcon = (type: string) => {
     switch (type) {
       case "ambulance":
@@ -113,6 +115,38 @@ export function VehicleInfoPanel({ vehicle, onClose }: VehicleInfoPanelProps) {
           </span>
           <span className="text-sm text-gray-600">{formatTimestamp(vehicle.timestamp)}</span>
         </div>
+
+        {vehicle.type === 'ambulance' && onShowRoute && (
+          <div className="pt-3 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onShowRoute}
+              className="w-full"
+            >
+              <MapPin className="w-4 h-4 mr-2" />
+              Show Route
+            </Button>
+          </div>
+        )}
+
+        {routeData && (
+          <div className="pt-3 border-t">
+            <div className="text-sm font-medium mb-2">Route Information</div>
+            <div className="space-y-1 text-xs text-gray-600">
+              <div>Distance: {(routeData.distance / 1000).toFixed(1)} km</div>
+              <div>Duration: {Math.round(routeData.duration / 60)} min</div>
+              {routeData.legs?.[0]?.steps && (
+                <div className="mt-2">
+                  <div className="font-medium">Directions:</div>
+                  {routeData.legs[0].steps.slice(0, 3).map((step: any, index: number) => (
+                    <div key={index} className="ml-2">• {step.instruction}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {emergencyContact && (
           <div className="pt-3 border-t">

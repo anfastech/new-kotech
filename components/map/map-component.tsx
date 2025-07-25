@@ -42,6 +42,9 @@ export function MapComponent() {
     city_bus: true,
     normal: true,
   })
+  const [showRoutes, setShowRoutes] = useState(false)
+  const [vehicleRoutes, setVehicleRoutes] = useState<{ [key: string]: any }>({})
+  const routesRef = useRef<{ [key: string]: any }>({})
 
   const { socket, isConnected, connectionStatus } = useSocket()
   const { sendNotification } = useNotifications()
@@ -90,30 +93,120 @@ export function MapComponent() {
         return
       }
 
-      mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "pk.eyJ1IjoidGVzdCIsImEiOiJjbGV0ZXN0In0.test"
+      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      if (!mapboxToken || mapboxToken === "your_mapbox_token_here") {
+        setMapError("Mapbox token not configured. Please add NEXT_PUBLIC_MAPBOX_TOKEN to your environment variables.")
+        return
+      }
+
+      mapboxgl.accessToken = mapboxToken
+
+      // Malappuram district bounds (approximate coordinates)
+      const malappuramBounds = [
+        [75.5, 10.8], // Southwest coordinates
+        [76.2, 11.8]  // Northeast coordinates
+      ]
 
       const map = new mapboxgl.Map({
         container: mapRef.current,
         style: "mapbox://styles/mapbox/streets-v12",
-        center: [75.7804, 11.2588], // Kottakkal coordinates
-        zoom: 14,
+        center: [75.7804, 11.2588], // Kottakkal coordinates (center of Malappuram)
+        zoom: 10,
+        maxBounds: malappuramBounds, // Restrict view to Malappuram
+        maxZoom: 16, // Limit maximum zoom level
+        minZoom: 8,  // Limit minimum zoom level
+      })
+
+      // Add navigation controls
+      map.addControl(new mapboxgl.NavigationControl(), 'top-left')
+
+      // Add scale control
+      map.addControl(new mapboxgl.ScaleControl({
+        maxWidth: 80,
+        unit: 'metric'
+      }), 'bottom-left')
+
+      // Restrict map movement to bounds
+      map.on('moveend', () => {
+        const center = map.getCenter()
+        const bounds = map.getBounds()
+        
+        // Check if the view is within Malappuram bounds
+        if (center.lng < malappuramBounds[0][0] || center.lng > malappuramBounds[1][0] ||
+            center.lat < malappuramBounds[0][1] || center.lat > malappuramBounds[1][1]) {
+          // If outside bounds, move back to center of Malappuram
+          map.flyTo({
+            center: [75.7804, 11.2588],
+            zoom: 10,
+            duration: 1000
+          })
+        }
       })
 
       map.on("load", () => {
         setIsMapLoaded(true)
-        console.log("Map loaded successfully")
+        console.log("Map loaded successfully with Malappuram bounds")
+        
+        // Add a subtle border to show the district boundary
+        map.addSource('malappuram-boundary', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'Polygon',
+              coordinates: [[
+                [75.5, 10.8], // Southwest
+                [76.2, 10.8], // Southeast
+                [76.2, 11.8], // Northeast
+                [75.5, 11.8], // Northwest
+                [75.5, 10.8]  // Close the polygon
+              ]]
+            }
+          }
+        })
+
+        map.addLayer({
+          id: 'malappuram-boundary-fill',
+          type: 'fill',
+          source: 'malappuram-boundary',
+          paint: {
+            'fill-color': '#3b82f6',
+            'fill-opacity': 0.05
+          }
+        })
+
+        map.addLayer({
+          id: 'malappuram-boundary-line',
+          type: 'line',
+          source: 'malappuram-boundary',
+          paint: {
+            'line-color': '#3b82f6',
+            'line-width': 2,
+            'line-opacity': 0.3
+          }
+        })
       })
 
       map.on("error", (e: any) => {
         console.error("Map error:", e)
-        setMapError("Map failed to load")
+        setMapError("Map failed to load. Please check your Mapbox token.")
       })
 
       // Right-click for incident reporting
       map.on("contextmenu", (e: any) => {
         e.preventDefault()
-        setIncidentLocation([e.lngLat.lng, e.lngLat.lat])
-        setShowIncidentModal(true)
+        const lngLat = e.lngLat
+        
+        // Check if the clicked location is within Malappuram bounds
+        if (lngLat.lng >= malappuramBounds[0][0] && lngLat.lng <= malappuramBounds[1][0] &&
+            lngLat.lat >= malappuramBounds[0][1] && lngLat.lat <= malappuramBounds[1][1]) {
+          setIncidentLocation([lngLat.lng, lngLat.lat])
+          setShowIncidentModal(true)
+        } else {
+          // Show notification that location is outside Malappuram
+          sendNotification("Location Error", "Incidents can only be reported within Malappuram district.")
+        }
       })
 
       mapInstanceRef.current = map
@@ -124,9 +217,9 @@ export function MapComponent() {
       }
     } catch (error) {
       console.error("Error initializing map:", error)
-      setMapError("Failed to initialize map")
+      setMapError("Failed to initialize map. Please check your configuration.")
     }
-  }, [isMapboxLoaded])
+  }, [isMapboxLoaded, sendNotification])
 
   // Socket event listeners
   useEffect(() => {
@@ -178,6 +271,12 @@ export function MapComponent() {
     // Add new markers
     vehicles.forEach((vehicle) => {
       if (!visibleLayers[vehicle.type]) return
+      
+      // Only show vehicles within Malappuram bounds
+      if (!isWithinMalappuramBounds(vehicle.coordinates)) {
+        console.log(`Vehicle ${vehicle.id} outside Malappuram bounds, skipping`)
+        return
+      }
 
       const color = getVehicleColor(vehicle.type)
 
@@ -208,6 +307,11 @@ export function MapComponent() {
       // Click handler
       el.addEventListener("click", () => {
         setSelectedVehicle(vehicle)
+        
+        // Show route for ambulances
+        if (vehicle.type === 'ambulance') {
+          calculateRoute(vehicle)
+        }
       })
 
       markersRef.current[vehicle.id] = marker
@@ -229,6 +333,139 @@ export function MapComponent() {
       default:
         return "#6b7280"
     }
+  }
+
+  // Validate if coordinates are within Malappuram bounds
+  const isWithinMalappuramBounds = (coordinates: [number, number]): boolean => {
+    const malappuramBounds = [
+      [75.5, 10.8], // Southwest coordinates
+      [76.2, 11.8]  // Northeast coordinates
+    ]
+    
+    return coordinates[0] >= malappuramBounds[0][0] && 
+           coordinates[0] <= malappuramBounds[1][0] && 
+           coordinates[1] >= malappuramBounds[0][1] && 
+           coordinates[1] <= malappuramBounds[1][1]
+  }
+
+  // Reset map view to Malappuram center
+  const resetMapView = () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo({
+        center: [75.7804, 11.2588], // Kottakkal coordinates (center of Malappuram)
+        zoom: 10,
+        duration: 1000
+      })
+    }
+  }
+
+  // Calculate route for a vehicle
+  const calculateRoute = async (vehicle: Vehicle, destination?: [number, number]) => {
+    if (!mapInstanceRef.current) return
+
+    try {
+      // If no destination provided, use a default destination in Kottakkal
+      const endPoint = destination || [75.7854, 11.2638] // Default destination
+
+      const response = await fetch('/api/routes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          start: vehicle.coordinates,
+          end: endPoint,
+          vehicle_type: vehicle.type,
+          avoid_congestion: true
+        })
+      })
+
+      const data = await response.json()
+      
+      if (data.success && data.route) {
+        // Remove existing route for this vehicle
+        if (routesRef.current[vehicle.id]) {
+          mapInstanceRef.current.removeLayer(`route-${vehicle.id}`)
+          mapInstanceRef.current.removeSource(`route-${vehicle.id}`)
+        }
+
+        // Add new route
+        mapInstanceRef.current.addSource(`route-${vehicle.id}`, {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: data.route.geometry
+          }
+        })
+
+        const routeColor = vehicle.type === 'ambulance' ? '#ef4444' : 
+                          vehicle.type === 'fire' ? '#f97316' : '#3b82f6'
+
+        mapInstanceRef.current.addLayer({
+          id: `route-${vehicle.id}`,
+          type: 'line',
+          source: `route-${vehicle.id}`,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          paint: {
+            'line-color': routeColor,
+            'line-width': 4,
+            'line-opacity': 0.8
+          }
+        })
+
+        routesRef.current[vehicle.id] = {
+          source: `route-${vehicle.id}`,
+          layer: `route-${vehicle.id}`,
+          data: data.route
+        }
+
+        setVehicleRoutes(prev => ({
+          ...prev,
+          [vehicle.id]: data.route
+        }))
+
+        // Fit map to show the entire route
+        const coordinates = data.route.geometry.coordinates
+        if (coordinates.length > 0) {
+          const bounds = coordinates.reduce((bounds: any, coord: [number, number]) => {
+            return bounds.extend(coord)
+          }, new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0]))
+
+          mapInstanceRef.current.fitBounds(bounds, {
+            padding: 50,
+            duration: 1000
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Error calculating route:', error)
+      sendNotification('Route Error', 'Failed to calculate route for vehicle')
+    }
+  }
+
+  // Toggle route display
+  const toggleRoutes = () => {
+    if (showRoutes) {
+      // Remove all routes
+      Object.keys(routesRef.current).forEach(vehicleId => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.removeLayer(`route-${vehicleId}`)
+          mapInstanceRef.current.removeSource(`route-${vehicleId}`)
+        }
+      })
+      routesRef.current = {}
+      setVehicleRoutes({})
+    } else {
+      // Calculate routes for all ambulances
+      vehicles.filter(v => v.type === 'ambulance').forEach(vehicle => {
+        calculateRoute(vehicle)
+      })
+    }
+    setShowRoutes(!showRoutes)
   }
 
   const handleIncidentSubmit = (incident: Omit<Incident, "id" | "timestamp">) => {
@@ -307,18 +544,37 @@ export function MapComponent() {
         </div>
       </div>
 
+      {/* Malappuram District Indicator */}
+      <div className="absolute top-4 left-4 bg-blue-50 border border-blue-200 rounded-lg shadow-lg p-3">
+        <div className="flex items-center space-x-2">
+          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+          <span className="text-sm font-medium text-blue-800">Malappuram District</span>
+        </div>
+        <div className="text-xs text-blue-600 mt-1">View restricted to district boundaries</div>
+      </div>
+
       {/* Map Controls */}
       <MapControls
         vehicles={vehicles}
         visibleLayers={visibleLayers}
         onLayerToggle={(layer, visible) => setVisibleLayers((prev) => ({ ...prev, [layer]: visible }))}
+        onResetView={resetMapView}
+        showRoutes={showRoutes}
+        onToggleRoutes={toggleRoutes}
       />
 
       {/* Traffic Legend */}
-      <TrafficLegend />
+      <TrafficLegend showRoutes={showRoutes} />
 
       {/* Vehicle Info Panel */}
-      {selectedVehicle && <VehicleInfoPanel vehicle={selectedVehicle} onClose={() => setSelectedVehicle(null)} />}
+      {selectedVehicle && (
+        <VehicleInfoPanel 
+          vehicle={selectedVehicle} 
+          onClose={() => setSelectedVehicle(null)}
+          routeData={vehicleRoutes[selectedVehicle.id]}
+          onShowRoute={() => selectedVehicle.type === 'ambulance' && calculateRoute(selectedVehicle)}
+        />
+      )}
 
       {/* Incident Report Modal */}
       {showIncidentModal && incidentLocation && (
