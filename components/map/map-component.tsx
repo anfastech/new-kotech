@@ -261,6 +261,233 @@ export function MapComponent() {
           // Store marker reference
           destinationMarkersRef.current[key] = marker
         })
+        
+        // Automatically show route from Custom Point to New Bus Stand
+        setTimeout(() => {
+          const from = kottakkalDestinations["custom-point"]
+          const to = kottakkalDestinations["new-bus-stand"]
+          
+          if (from && to && mapInstanceRef.current) {
+            // Get road-following route from navigation API
+            fetch("/api/navigation", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                origin: from.coordinates,
+                destination: to.coordinates,
+                vehicle_type: "normal",
+                avoid_congestion: true,
+              }),
+            })
+            .then(response => response.json())
+            .then(data => {
+              console.log("Auto route API response:", data)
+              
+              if (data.success && data.data.routes && data.data.routes.length > 0) {
+                const route = data.data.routes[0]
+                
+                // Add route source
+                mapInstanceRef.current.addSource("auto-route", {
+                  type: "geojson",
+                  data: {
+                    type: "Feature",
+                    properties: {
+                      from: from.name,
+                      to: to.name,
+                      distance: route.distance,
+                      duration: route.duration,
+                    },
+                    geometry: route.geometry,
+                  },
+                })
+                
+                // Add route outline (white background)
+                mapInstanceRef.current.addLayer({
+                  id: "auto-route-outline",
+                  type: "line",
+                  source: "auto-route",
+                  layout: {
+                    "line-join": "round",
+                    "line-cap": "round"
+                  },
+                  paint: {
+                    "line-color": "#ffffff",
+                    "line-width": 12,
+                    "line-opacity": 0.9
+                  }
+                })
+                
+                // Add main route line (green)
+                mapInstanceRef.current.addLayer({
+                  id: "auto-route",
+                  type: "line",
+                  source: "auto-route",
+                  layout: {
+                    "line-join": "round",
+                    "line-cap": "round"
+                  },
+                  paint: {
+                    "line-color": "#10b981",
+                    "line-width": 8,
+                    "line-opacity": 1.0
+                  }
+                })
+                
+                // Fit map to show the route
+                const coordinates = route.geometry.coordinates as [number, number][]
+                if (coordinates.length > 0) {
+                  const bounds = coordinates.reduce(
+                    (bounds: any, coord: [number, number]) => {
+                      return bounds.extend(coord)
+                    },
+                    new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
+                  )
+                  mapInstanceRef.current.fitBounds(bounds, { 
+                    padding: 150, 
+                    duration: 2000,
+                    maxZoom: 14
+                  })
+                }
+                
+                // Success notification
+                const distanceKm = (route.distance / 1000).toFixed(1)
+                const durationMin = Math.round(route.duration / 60)
+                
+                sendNotification(
+                  "Road Route Displayed", 
+                  `${from.name} → ${to.name}: ${distanceKm}km, ${durationMin}min (via roads)`
+                )
+
+                console.log("Road route created:", {
+                  from: from.name,
+                  to: to.name,
+                  distance: distanceKm + "km",
+                  duration: durationMin + "min",
+                  coordinates: coordinates.length,
+                  roadFollowing: true
+                })
+                
+                console.log("Road route created:", {
+                  from: from.name,
+                  to: to.name,
+                  distance: distanceKm + "km",
+                  duration: durationMin + "min",
+                  coordinates: coordinates.length
+                })
+                
+              } else {
+                console.error("No route found, creating fallback straight line")
+                // Fallback to straight line if API fails
+                createStraightLineRoute(from, to)
+              }
+            })
+            .catch(error => {
+              console.error("Route API error, creating fallback:", error)
+              // Fallback to straight line if API fails
+              createStraightLineRoute(from, to)
+            })
+          }
+        }, 3000) // 3 second delay to ensure map is fully loaded
+        
+        // Fallback function for straight line route
+        const createStraightLineRoute = (from: any, to: any) => {
+          try {
+            // Calculate distance using Haversine formula
+            const R = 6371000 // Earth's radius in meters
+            const lat1 = from.coordinates[1] * Math.PI / 180
+            const lat2 = to.coordinates[1] * Math.PI / 180
+            const deltaLat = (to.coordinates[1] - from.coordinates[1]) * Math.PI / 180
+            const deltaLng = (to.coordinates[0] - from.coordinates[0]) * Math.PI / 180
+            
+            const a = Math.sin(deltaLat/2) * Math.sin(deltaLat/2) +
+                      Math.cos(lat1) * Math.cos(lat2) *
+                      Math.sin(deltaLng/2) * Math.sin(deltaLng/2)
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+            const distance = R * c
+            
+            // Create route data
+            const routeData = {
+              type: "Feature",
+              properties: {
+                from: from.name,
+                to: to.name,
+                distance: distance,
+                duration: Math.round(distance / 8.33)
+              },
+              geometry: {
+                type: "LineString",
+                coordinates: [from.coordinates, to.coordinates]
+              }
+            }
+            
+            // Add route source
+            mapInstanceRef.current.addSource("auto-route", {
+              type: "geojson",
+              data: routeData
+            })
+            
+            // Add route outline (white background)
+            mapInstanceRef.current.addLayer({
+              id: "auto-route-outline",
+              type: "line",
+              source: "auto-route",
+              layout: {
+                "line-join": "round",
+                "line-cap": "round"
+              },
+              paint: {
+                "line-color": "#ffffff",
+                "line-width": 12,
+                "line-opacity": 0.9
+              }
+            })
+            
+            // Add main route line (green)
+            mapInstanceRef.current.addLayer({
+              id: "auto-route",
+              type: "line",
+              source: "auto-route",
+              layout: {
+                "line-join": "round",
+                "line-cap": "round"
+              },
+              paint: {
+                "line-color": "#10b981",
+                "line-width": 8,
+                "line-opacity": 1.0
+              }
+            })
+            
+            // Fit map to show both points and route
+            const bounds = new (window as any).mapboxgl.LngLatBounds()
+            bounds.extend(from.coordinates)
+            bounds.extend(to.coordinates)
+            mapInstanceRef.current.fitBounds(bounds, { 
+              padding: 150, 
+              duration: 2000,
+              maxZoom: 14
+            })
+            
+            // Success notification
+            const distanceKm = (distance / 1000).toFixed(1)
+            const durationMin = Math.round(distance / 1000 * 2)
+            
+            sendNotification(
+              "Direct Route Displayed", 
+              `${from.name} → ${to.name}: ${distanceKm}km, ~${durationMin}min (direct line)`
+            )
+            
+            console.log("Fallback route created:", {
+              from: from.name,
+              to: to.name,
+              distance: distanceKm + "km",
+              duration: durationMin + "min"
+            })
+            
+          } catch (error) {
+            console.error("Fallback route creation error:", error)
+          }
+        }
       })
 
       map.on("contextmenu", (e: any) => {
@@ -888,6 +1115,20 @@ export function MapComponent() {
     }
   }
 
+  const clearRoute = () => {
+    if (mapInstanceRef.current && routesRef.current["city-route"]) {
+      try {
+        mapInstanceRef.current.removeLayer("route-city-route-outline")
+        mapInstanceRef.current.removeLayer("route-city-route")
+        mapInstanceRef.current.removeSource("route-city-route")
+        delete routesRef.current["city-route"]
+        sendNotification("Route Cleared", "Route has been removed from the map")
+      } catch (error) {
+        console.log("Clearing route...")
+      }
+    }
+  }
+
   const navigateToDestination = (destinationKey: string) => {
     const destination = kottakkalDestinations[destinationKey as keyof typeof kottakkalDestinations]
     if (!destination) return
@@ -913,115 +1154,145 @@ export function MapComponent() {
     const from = kottakkalDestinations[fromKey as keyof typeof kottakkalDestinations]
     const to = kottakkalDestinations[toKey as keyof typeof kottakkalDestinations]
     
-    if (!from || !to) return
+    if (!from || !to) {
+      sendNotification("Route Error", "Invalid destination points")
+      return
+    }
     
-    if (mapInstanceRef.current) {
-      try {
-        fetch("/api/navigation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            origin: from.coordinates,
-            destination: to.coordinates,
-            vehicle_type: "normal",
-            avoid_congestion: true,
-          }),
+    if (!mapInstanceRef.current) {
+      sendNotification("Map Error", "Map not loaded")
+      return
+    }
+    
+    sendNotification("Creating Road Route", `Calculating road-following route from ${from.name} to ${to.name}...`)
+    
+    // Use the navigation API for road-following routing
+    fetch("/api/navigation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        origin: from.coordinates,
+        destination: to.coordinates,
+        vehicle_type: "normal",
+        avoid_congestion: true,
+      }),
+    })
+    .then(response => response.json())
+    .then(data => {
+      console.log("Road route API response:", data)
+      
+      if (data.success && data.data.routes && data.data.routes.length > 0) {
+        const route = data.data.routes[0]
+        
+        // Remove existing route if it exists
+        if (routesRef.current["city-route"]) {
+          try {
+            mapInstanceRef.current.removeLayer("route-city-route-outline")
+            mapInstanceRef.current.removeLayer("route-city-route")
+            mapInstanceRef.current.removeSource("route-city-route")
+          } catch (e) {
+            console.log("Removing old route layers...")
+          }
+        }
+        
+        // Add route source
+        mapInstanceRef.current.addSource("route-city-route", {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {
+              from: from.name,
+              to: to.name,
+              distance: route.distance,
+              duration: route.duration,
+            },
+            geometry: route.geometry,
+          },
         })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success && data.data.routes && data.data.routes.length > 0) {
-            const route = data.data.routes[0]
-            
-            // Remove existing route if it exists
-            if (routesRef.current["city-route"]) {
-              mapInstanceRef.current.removeLayer("route-city-route")
-              mapInstanceRef.current.removeSource("route-city-route")
-              mapInstanceRef.current.removeLayer("route-city-route-outline")
-            }
-            
-            // Add new route source
-            mapInstanceRef.current.addSource("route-city-route", {
-              type: "geojson",
-              data: {
-                type: "Feature",
-                properties: {
-                  from: from.name,
-                  to: to.name,
-                  distance: route.distance,
-                  duration: route.duration,
-                },
-                geometry: route.geometry,
-              },
-            })
-            
-            // Add route layer
-            mapInstanceRef.current.addLayer({
-              id: "route-city-route",
-              type: "line",
-              source: "route-city-route",
-              layout: { 
-                "line-join": "round", 
-                "line-cap": "round" 
-              },
-              paint: {
-                "line-color": "#10b981",
-                "line-width": 6,
-                "line-opacity": 0.9,
-              },
-            })
-            
-            // Add route outline
-            mapInstanceRef.current.addLayer({
-              id: "route-city-route-outline",
-              type: "line",
-              source: "route-city-route",
-              layout: { 
-                "line-join": "round", 
-                "line-cap": "round" 
-              },
-              paint: {
-                "line-color": "#ffffff",
-                "line-width": 8,
-                "line-opacity": 0.3,
-              },
-            }, "route-city-route")
-            
-            // Store route reference
-            routesRef.current["city-route"] = {
-              source: "route-city-route",
-              layer: "route-city-route",
-              outlineLayer: "route-city-route-outline",
-              data: route,
-            }
-            
-            // Fit map to route bounds
-            const coordinates = route.geometry.coordinates as [number, number][]
-            if (coordinates.length > 0) {
-              const firstCoord = coordinates[0]
-              const bounds = coordinates.reduce(
-                (bounds: any, coord: [number, number]) => {
-                  return bounds.extend(coord)
-                },
-                new (window as any).mapboxgl.LngLatBounds(firstCoord, firstCoord)
-              )
-              mapInstanceRef.current.fitBounds(bounds, { padding: 50, duration: 1000 })
-            }
-            
-            sendNotification(
-              "City Route", 
-              `${from.name} → ${to.name}: ${(route.distance / 1000).toFixed(1)}km, ${Math.round(route.duration / 60)}min`
-            )
+        
+        // Add route outline (white background)
+        mapInstanceRef.current.addLayer({
+          id: "route-city-route-outline",
+          type: "line",
+          source: "route-city-route",
+          layout: {
+            "line-join": "round",
+            "line-cap": "round"
+          },
+          paint: {
+            "line-color": "#ffffff",
+            "line-width": 12,
+            "line-opacity": 0.9
           }
         })
-        .catch(error => {
-          console.error("Route calculation error:", error)
-          sendNotification("Route Error", "Failed to calculate route between points")
+        
+        // Add main route line (green)
+        mapInstanceRef.current.addLayer({
+          id: "route-city-route",
+          type: "line",
+          source: "route-city-route",
+          layout: {
+            "line-join": "round",
+            "line-cap": "round"
+          },
+          paint: {
+            "line-color": "#10b981",
+            "line-width": 8,
+            "line-opacity": 1.0
+          }
         })
-      } catch (error) {
-        console.error("Route calculation error:", error)
-        sendNotification("Route Error", "Failed to calculate route between points")
+        
+        // Store route reference
+        routesRef.current["city-route"] = {
+          source: "route-city-route",
+          layer: "route-city-route",
+          outlineLayer: "route-city-route-outline",
+          data: route
+        }
+        
+        // Fit map to show the route
+        const coordinates = route.geometry.coordinates as [number, number][]
+        if (coordinates.length > 0) {
+          const bounds = coordinates.reduce(
+            (bounds: any, coord: [number, number]) => {
+              return bounds.extend(coord)
+            },
+            new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
+          )
+          mapInstanceRef.current.fitBounds(bounds, {
+            padding: 100,
+            duration: 2000,
+            maxZoom: 15
+          })
+        }
+        
+        // Success notification
+        const distanceKm = (route.distance / 1000).toFixed(1)
+        const durationMin = Math.round(route.duration / 60)
+        
+        sendNotification(
+          "Road Route Created",
+          `${from.name} → ${to.name}: ${distanceKm}km, ${durationMin}min (via roads)`
+        )
+        
+        console.log("Road route created successfully:", {
+          from: from.name,
+          to: to.name,
+          distance: distanceKm + "km",
+          duration: durationMin + "min",
+          coordinates: coordinates.length,
+          roadFollowing: true
+        })
+        
+      } else {
+        console.error("No route found in API response")
+        sendNotification("Route Error", "Could not calculate road route")
       }
-    }
+    })
+    .catch(error => {
+      console.error("Route API error:", error)
+      sendNotification("Route Error", "Failed to calculate road route")
+    })
   }
 
   // ---- RENDER ----
@@ -1229,6 +1500,23 @@ export function MapComponent() {
                   className="px-3 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
                 >
                   📍 → 🚌 Custom Point to Bus Stand
+                </button>
+                <button
+                  onClick={() => {
+                    console.log("Testing route between points...")
+                    console.log("Custom Point:", kottakkalDestinations["custom-point"])
+                    console.log("New Bus Stand:", kottakkalDestinations["new-bus-stand"])
+                    navigateBetweenPoints("custom-point", "new-bus-stand")
+                  }}
+                  className="px-3 py-2 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
+                >
+                  🔧 Test Route (Debug)
+                </button>
+                <button
+                  onClick={clearRoute}
+                  className="px-3 py-2 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                >
+                  🗑️ Clear Route
                 </button>
               </div>
               <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded">
