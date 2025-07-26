@@ -51,11 +51,11 @@ export function MapComponent() {
   const [showDestinationSelector, setShowDestinationSelector] = useState(false)
   const [visibleLayers, setVisibleLayers] = useState({
     ambulance: true,
-    fire: false,
-    police: false,
-    school_bus: false,
-    city_bus: false,
-    normal: false,
+    fire: true,
+    police: true,
+    school_bus: true,
+    city_bus: true,
+    normal: true,
   })
   const [showRoutes, setShowRoutes] = useState(false)
   const [vehicleRoutes, setVehicleRoutes] = useState<{ [key: string]: any }>({})
