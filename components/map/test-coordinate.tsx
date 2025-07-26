@@ -432,13 +432,13 @@ export function TestCoordinate() {
         </div>
 
         {/* Setup Instructions */}
-        <div className="text-xs text-gray-500 bg-yellow-50 p-2 rounded border border-yellow-200">
+        {/* <div className="text-xs text-gray-500 bg-yellow-50 p-2 rounded border border-yellow-200">
           <div className="font-medium mb-1">⚙️ Setup Required:</div>
           <div>Add to .env.local:</div>
           <div className="font-mono text-xs bg-gray-100 p-1 rounded mt-1">
             NEXT_PUBLIC_LOCATIONIQ_API_KEY=your_api_key_here
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   )
