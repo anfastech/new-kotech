@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import { useSocket } from "@/components/providers/socket-provider"
-import { MapControls } from "./map-controls"
 import { VehicleInfoPanel } from "./vehicle-info-panel"
 import { IncidentReportModal } from "./incident-report-modal"
 import { TrafficLegend } from "./traffic-legend"
 import { TestCoordinate } from "./test-coordinate"
 import { useNotifications } from "@/components/notifications/notification-provider"
+import { useMap } from "@/components/providers/map-provider"
 interface Vehicle {
   id: string
   type: "ambulance" | "fire" | "police" | "school_bus" | "city_bus" | "normal"
@@ -73,6 +73,15 @@ export function MapComponent() {
 
   const { socket, isConnected, connectionStatus } = useSocket()
   const { sendNotification } = useNotifications()
+  const {
+    setVehicles: setVehiclesContext,
+    setVisibleLayers: setVisibleLayersContext,
+    setUserLocation: setUserLocationContext,
+    setIsTrackingUser: setIsTrackingUserContext,
+    setAutoCenter: setAutoCenterContext,
+    setShowRoutes: setShowRoutesContext,
+    setMapFunctions
+  } = useMap()
 
   // ---- Mapbox & Geolocation setup ----
 
@@ -130,6 +139,36 @@ export function MapComponent() {
     return () => clearInterval(interval)
   }, [])
 
+  // Memoize map functions to prevent infinite loops
+  const memoizedOnLayerToggle = useCallback((layer: any, visible: boolean) => {
+    setVisibleLayers(prev => ({ ...prev, [layer]: visible }))
+  }, [])
+
+  const memoizedOnToggleAutoCenter = useCallback((checked: boolean) => {
+    setAutoCenter(checked)
+  }, [])
+
+  // Sync local state with context
+  useEffect(() => {
+    setVisibleLayersContext(visibleLayers)
+  }, [visibleLayers, setVisibleLayersContext])
+
+  useEffect(() => {
+    setUserLocationContext(userLocation)
+  }, [userLocation, setUserLocationContext])
+
+  useEffect(() => {
+    setIsTrackingUserContext(isTrackingUser)
+  }, [isTrackingUser, setIsTrackingUserContext])
+
+  useEffect(() => {
+    setAutoCenterContext(autoCenter)
+  }, [autoCenter, setAutoCenterContext])
+
+  useEffect(() => {
+    setShowRoutesContext(showRoutes)
+  }, [showRoutes, setShowRoutesContext])
+
   // Test coordinates integration - listen for coordinates from test component
   useEffect(() => {
     const handleTestCoordinates = (event: CustomEvent) => {
@@ -153,6 +192,37 @@ export function MapComponent() {
     
     return () => {
       window.removeEventListener('test-coordinates-update', handleTestCoordinates as EventListener)
+    }
+  }, [])
+
+  // Listen for navigation events from GPS dialog
+  useEffect(() => {
+    const handleNavigateToDestination = (event: CustomEvent) => {
+      const { destination, userLocation } = event.detail
+      if (destination && userLocation) {
+        calculateRouteFromUser(destination.coordinates)
+      }
+    }
+
+    const handleNavigateBetweenPoints = (event: CustomEvent) => {
+      const { from, to } = event.detail
+      if (from && to) {
+        navigateBetweenPoints(from.coordinates, to.coordinates)
+      }
+    }
+
+    const handleClearRoute = () => {
+      clearRoute()
+    }
+
+    window.addEventListener('navigate-to-destination', handleNavigateToDestination as EventListener)
+    window.addEventListener('navigate-between-points', handleNavigateBetweenPoints as EventListener)
+    window.addEventListener('clear-route', handleClearRoute as EventListener)
+
+    return () => {
+      window.removeEventListener('navigate-to-destination', handleNavigateToDestination as EventListener)
+      window.removeEventListener('navigate-between-points', handleNavigateBetweenPoints as EventListener)
+      window.removeEventListener('clear-route', handleClearRoute as EventListener)
     }
   }, [])
 
@@ -845,7 +915,10 @@ export function MapComponent() {
         return [...updated, vehicle]
       })
     }
-    const handleVehiclesData = (vehiclesData: Vehicle[]) => setVehicles(vehiclesData)
+    const handleVehiclesData = (vehiclesData: Vehicle[]) => {
+      setVehicles(vehiclesData)
+      setVehiclesContext(vehiclesData)
+    }
     const handleEmergencyAlert = (alert: any) =>
       sendNotification("Emergency Alert", `${alert.type} reported at ${alert.location}`)
     const handleTrafficAlert = (alert: any) =>
@@ -860,7 +933,7 @@ export function MapComponent() {
       socket.off("emergency-alert", handleEmergencyAlert)
       socket.off("traffic-alert", handleTrafficAlert)
     }
-  }, [socket, sendNotification])
+  }, [socket, sendNotification, setVehiclesContext])
 
   useEffect(() => {
     if (!isMapLoaded || !mapInstanceRef.current) return
@@ -1355,6 +1428,19 @@ export function MapComponent() {
     })
   }
 
+  // Set map functions in context after all functions are defined
+  useEffect(() => {
+    setMapFunctions({
+      onLayerToggle: memoizedOnLayerToggle,
+      onStartTracking: startLocationTracking,
+      onStopTracking: stopLocationTracking,
+      onCenterOnUser: centerOnUser,
+      onToggleAutoCenter: memoizedOnToggleAutoCenter,
+      onToggleRoutes: toggleRoutes,
+      onResetView: resetMapView,
+    })
+  }, [setMapFunctions, memoizedOnLayerToggle, memoizedOnToggleAutoCenter, startLocationTracking, stopLocationTracking, centerOnUser, toggleRoutes, resetMapView])
+
   // ---- RENDER ----
 
   if (mapError) {
@@ -1480,151 +1566,6 @@ export function MapComponent() {
         </div>
       </div>
 
-              {/* GPS Tracking & Navigation Panel */}
-        <div className="absolute top-4 left-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 min-w-[320px]">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${isTrackingUser ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-              <span className="text-sm font-medium">
-                {isTrackingUser ? 'GPS Tracking Active' : 'GPS Tracking'}
-              </span>
-            </div>
-            <button
-              onClick={isTrackingUser ? stopLocationTracking : startLocationTracking}
-              className={`px-3 py-1 text-xs rounded font-medium ${isTrackingUser
-                  ? 'bg-red-500 text-white hover:bg-red-600'
-                  : 'bg-green-500 text-white hover:bg-green-600'
-                }`}
-            >
-              {isTrackingUser ? 'Stop GPS' : 'Start GPS'}
-            </button>
-          </div>
-          
-          {/* API Status */}
-          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
-            <div className="text-xs text-blue-800 font-medium">🔄 Location API Active</div>
-            <div className="text-xs text-blue-600">Fetching location every 3 seconds</div>
-          </div>
-        
-        {/* GPS Status Banner */}
-        {!userLocation && (
-          <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded">
-            <div className="text-xs text-yellow-800 font-medium">📍 GPS Required for Navigation</div>
-            <div className="text-xs text-yellow-600">Enable GPS tracking to start navigating</div>
-          </div>
-        )}
-        
-        {userLocation && (
-          <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded">
-            <div className="text-xs text-green-800 font-medium">✅ GPS Active - Ready to Navigate</div>
-            <div className="text-xs text-green-600">Your location: {userLocation.coordinates[1].toFixed(4)}, {userLocation.coordinates[0].toFixed(4)}</div>
-          </div>
-        )}
-        
-        {userLocation ? (
-          <div className="space-y-2">
-            <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
-              <div className="font-medium mb-1">📍 Your Current Location:</div>
-              <div>Latitude: {userLocation.coordinates[1].toFixed(6)}</div>
-              <div>Longitude: {userLocation.coordinates[0].toFixed(6)}</div>
-              <div>Accuracy: ±{Math.round(userLocation.accuracy)}m</div>
-              {userLocation.speed && (
-                <div>Speed: {Math.round(userLocation.speed * 3.6)} km/h</div>
-              )}
-              <div>Updated: {new Date(userLocation.timestamp).toLocaleTimeString()}</div>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-gray-700">Navigation Options:</div>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  onClick={() => setShowDestinationSelector(!showDestinationSelector)}
-                  className="px-3 py-2 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                >
-                  🗺️ Choose Destination
-                </button>
-                <button
-                  onClick={() => navigateToDestination("kottakkal-temple")}
-                  className="px-3 py-2 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
-                >
-                  🕍 To Temple (Example)
-                </button>
-                <button
-                  onClick={() => navigateToDestination("custom-point")}
-                  className="px-3 py-2 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
-                >
-                  📍 To Custom Point
-                </button>
-                <button
-                  onClick={() => navigateToDestination("new-bus-stand")}
-                  className="px-3 py-2 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
-                >
-                  🚌 To New Bus Stand
-                </button>
-                <button
-                  onClick={() => navigateBetweenPoints("custom-point", "new-bus-stand")}
-                  className="px-3 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                >
-                  📍 → 🚌 Custom Point to Bus Stand
-                </button>
-                <button
-                  onClick={() => {
-                    console.log("Testing route between points...")
-                    console.log("Custom Point:", kottakkalDestinations["custom-point"])
-                    console.log("New Bus Stand:", kottakkalDestinations["new-bus-stand"])
-                    navigateBetweenPoints("custom-point", "new-bus-stand")
-                  }}
-                  className="px-3 py-2 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
-                >
-                  🔧 Test Route (Debug)
-                </button>
-                <button
-                  onClick={clearRoute}
-                  className="px-3 py-2 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
-                >
-                  🗑️ Clear Route
-                </button>
-              </div>
-              <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded">
-                <div className="font-medium mb-1">How to navigate:</div>
-                <div>1. Enable GPS tracking above</div>
-                <div>2. Click "Choose Destination"</div>
-                <div>3. Select your destination</div>
-                <div>4. Follow the blue route line</div>
-              </div>
-            </div>
-          </div>
-        ) : (
-                      <div className="text-center py-4">
-              <div className="text-xs text-gray-500 mb-2">
-                {isTrackingUser ? 'Getting your location...' : 'Enable GPS to start navigation'}
-              </div>
-              {!isTrackingUser && (
-                <div className="space-y-2">
-                  <button
-                    onClick={startLocationTracking}
-                    className="px-4 py-2 text-sm bg-green-500 text-white rounded hover:bg-green-600 transition-colors w-full"
-                  >
-                    🎯 Start GPS Tracking
-                  </button>
-                  <button
-                    onClick={setUserLocationManually}
-                    className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors w-full"
-                  >
-                    📍 Set Manual Location
-                  </button>
-                </div>
-              )}
-            </div>
-        )}
-        
-        {locationError && (
-          <div className="text-xs text-red-600 mt-2 p-2 bg-red-50 rounded border border-red-200">
-            ⚠️ {locationError}
-          </div>
-        )}
-      </div>
-
       {/* Malappuram District Indicator */}
       <div className="absolute top-4 right-4 bg-blue-50 border border-blue-200 rounded-lg shadow-lg p-3">
         <div className="flex items-center space-x-2">
@@ -1733,22 +1674,7 @@ export function MapComponent() {
         </div>
       )}
 
-      {/* Map Controls */}
-      <MapControls
-        vehicles={vehicles}
-        visibleLayers={visibleLayers}
-        onLayerToggle={(layer, visible) => setVisibleLayers((prev) => ({ ...prev, [layer]: visible }))}
-        onResetView={resetMapView}
-        showRoutes={showRoutes}
-        onToggleRoutes={toggleRoutes}
-        userLocation={userLocation}
-        isTrackingUser={isTrackingUser}
-        onStartTracking={startLocationTracking}
-        onStopTracking={stopLocationTracking}
-        onCenterOnUser={centerOnUser}
-        autoCenter={autoCenter}
-        onToggleAutoCenter={toggleAutoCenter}
-      />
+      {/* Map Controls - Now available in Settings Modal */}
 
       {/* Traffic Legend */}
       <TrafficLegend showRoutes={showRoutes} />
@@ -1759,7 +1685,7 @@ export function MapComponent() {
           vehicle={selectedVehicle}
           onClose={() => setSelectedVehicle(null)}
           routeData={vehicleRoutes[selectedVehicle.id]}
-          onShowRoute={() => selectedVehicle.type === "ambulance" && calculateRoute(selectedVehicle)}
+          onShowRoute={() => selectedVehicle && selectedVehicle.type === "ambulance" && calculateRoute(selectedVehicle)}
           userLocation={userLocation}
         />
       )}

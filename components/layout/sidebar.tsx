@@ -8,10 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useSocket } from "@/components/providers/socket-provider"
 import { BarChart3, AlertTriangle, Users, Settings, ChevronLeft, ChevronRight } from "lucide-react"
 import Link from "next/link"
+import { useSettings } from "@/components/providers/settings-provider"
+import { GPSTrackingDialog } from "@/components/gps-tracking-dialog"
+import { TrafficInfoDialog } from "@/components/traffic-info-dialog"
 
 export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const { connectionStatus } = useSocket()
+  const { openSettings } = useSettings()
 
   if (isCollapsed) {
     return (
@@ -80,10 +84,12 @@ export function Sidebar() {
                 <AlertTriangle className="w-4 h-4 mr-2" />
                 Emergency Alert
               </Button>
-              <Button variant="outline" className="w-full justify-start bg-transparent">
+              <Button variant="outline" className="w-full justify-start bg-transparent" onClick={openSettings}>
                 <Settings className="w-4 h-4 mr-2" />
-                Settings
+                Map Settings & Controls
               </Button>
+              <GPSTrackingDialog />
+              <TrafficInfoDialog />
             </CardContent>
           </Card>
         </TabsContent>

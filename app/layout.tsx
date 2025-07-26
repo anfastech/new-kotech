@@ -5,6 +5,7 @@ import { GeistMono } from "geist/font/mono"
 import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
 import { NotificationProvider } from "@/components/notifications/notification-provider"
+import { SettingsProvider } from "@/components/providers/settings-provider"
 
 export const metadata: Metadata = {
   title: "Smart Traffic App",
@@ -21,8 +22,10 @@ export default function RootLayout({
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body>
         <NotificationProvider>
-          {children}
-          <Toaster />
+          <SettingsProvider>
+            {children}
+            <Toaster />
+          </SettingsProvider>
         </NotificationProvider>
       </body>
     </html>
