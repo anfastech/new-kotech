@@ -1,5 +1,8 @@
 # Smart Traffic Management System - Kottakkal
 
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/80d081fa-ce46-4b58-bfa1-577f73963d21" />
+
+
 A real-time traffic management system for Kottakkal using Firebase Realtime Database for live data synchronization.
 
 ## Features
