@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, ReactNode, useEffect } from "react"
 
-export type UserRole = "client" | "ambulance-driver"
+
 
 interface User {
   username: string
@@ -115,3 +115,5 @@ export function useRole() {
   }
   return context
 } 
+
+export type UserRole = "client" | "ambulance-driver"

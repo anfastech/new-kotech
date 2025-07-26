@@ -33,6 +33,7 @@ interface UserLocation {
   timestamp: number
 }
 
+
 export function MapComponent() {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -49,6 +50,7 @@ export function MapComponent() {
   const [incidentLocation, setIncidentLocation] = useState<[number, number] | null>(null)
   const [selectedDestination, setSelectedDestination] = useState<string>("kottakkal-center")
   const [showDestinationSelector, setShowDestinationSelector] = useState(false)
+  const [apiStatus, setApiStatus] = useState<'connecting' | 'connected' | 'error'>('connecting')
   const [visibleLayers, setVisibleLayers] = useState({
     ambulance: true,
     fire: true,
@@ -115,9 +117,14 @@ export function MapComponent() {
   // Location API integration
   const fetchLocationFromAPI = async () => {
     try {
+      console.log('Fetching location from API...')
       const response = await fetch('/api/location?clientId=test-coordinate-client')
+      console.log('API Response status:', response.status)
+      
       if (response.ok) {
         const data = await response.json()
+        console.log('API Response data:', data)
+        setApiStatus('connected')
         if (data.success && data.data.location) {
           const location = data.data.location
           const newUserLocation: UserLocation = {
@@ -128,6 +135,19 @@ export function MapComponent() {
           setUserLocation(newUserLocation)
           updateUserLocationMarker(newUserLocation)
           console.log('Location fetched from API:', location)
+        } else {
+          console.log('API returned success but no location data:', data)
+        }
+      } else {
+        const errorData = await response.json()
+        console.log('API Error response:', errorData)
+        if (response.status === 404) {
+          console.log('No location data found for test-coordinate-client. Initializing with default location...')
+          setApiStatus('connecting')
+          // Initialize with a default location (Malappuram coordinates)
+          await initializeTestLocation()
+        } else {
+          setApiStatus('error')
         }
       }
     } catch (error) {
@@ -135,10 +155,82 @@ export function MapComponent() {
     }
   }
 
+  // Initialize test location in API
+  const initializeTestLocation = async () => {
+    try {
+      const response = await fetch('/api/location', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientId: 'test-coordinate-client',
+          coordinates: [76.0740, 11.0400], // Malappuram coordinates
+          accuracy: 100,
+          source: 'manual',
+          address: 'Malappuram, Kerala, India'
+        }),
+      })
+      
+      if (response.ok) {
+        console.log('Test location initialized successfully')
+        // Fetch the location again
+        fetchLocationFromAPI()
+      } else {
+        console.error('Failed to initialize test location')
+      }
+    } catch (error) {
+      console.error('Error initializing test location:', error)
+    }
+  }
+
+  // Test API connection
+  const testAPIConnection = async () => {
+    try {
+      setApiStatus('connecting')
+      console.log('Testing API connection...')
+      const response = await fetch('/api/location?clientId=test-coordinate-client')
+      console.log('API test response status:', response.status)
+      
+      if (response.ok) {
+        const data = await response.json()
+        console.log('✅ API is working correctly:', data)
+        setApiStatus('connected')
+        sendNotification('API Test', '✅ Location API is working correctly!')
+        return true
+      } else {
+        console.log('❌ API returned error status:', response.status)
+        setApiStatus('error')
+        sendNotification('API Test', '❌ API returned error status: ' + response.status)
+        return false
+      }
+    } catch (error) {
+      console.error('❌ API connection failed:', error)
+      setApiStatus('error')
+      sendNotification('API Test', '❌ API connection failed: ' + error)
+      return false
+    }
+  }
+
+  // Helper function to get route color based on role
+  const getRouteColor = (role?: string) => {
+    return role === "ambulance-driver" ? "#ef4444" : "#10b981"
+  }
+
   // Fetch location from API every 3 seconds
   useEffect(() => {
     const interval = setInterval(fetchLocationFromAPI, 3000)
     return () => clearInterval(interval)
+  }, [])
+
+  // Initialize test location on component mount
+  useEffect(() => {
+    // Initialize with a default location after a short delay to ensure map is loaded
+    const timer = setTimeout(() => {
+      initializeTestLocation()
+    }, 2000)
+    
+    return () => clearTimeout(timer)
   }, [])
 
   // Memoize map functions to prevent infinite loops
@@ -186,7 +278,7 @@ export function MapComponent() {
       setUserLocation(newUserLocation)
       updateUserLocationMarker(newUserLocation)
       
-      console.log('Test coordinates received:', { latitude, longitude })
+      // console.log('Test coordinates received:', { latitude, longitude })
     }
 
     // Listen for custom event from test coordinates component
@@ -394,136 +486,138 @@ export function MapComponent() {
           destinationMarkersRef.current[key] = marker
         })
         
-        // Automatically show route from Custom Point to New Bus Stand
-        setTimeout(() => {
-          const from = kottakkalDestinations["custom-point"]
-          const to = kottakkalDestinations["new-bus-stand"]
-          
-          if (from && to && mapInstanceRef.current) {
-            // Get road-following route from navigation API
-            fetch("/api/navigation", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                origin: from.coordinates,
-                destination: to.coordinates,
-                vehicle_type: "normal",
-                avoid_congestion: true,
-              }),
-            })
-            .then(response => response.json())
-            .then(data => {
-              console.log("Auto route API response:", data)
+        // Helper function to create a route
+        const createRoute = (from: any, to: any, routeId: string, color: string) => {
+          // Get road-following route from navigation API
+          fetch("/api/navigation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              origin: from.coordinates,
+              destination: to.coordinates,
+              vehicle_type: "normal",
+              avoid_congestion: true,
+            }),
+          })
+          .then(response => response.json())
+          .then(data => {
+            console.log(`Route API response for ${routeId}:`, data)
+            
+            if (data.success && data.data.routes && data.data.routes.length > 0) {
+              const route = data.data.routes[0]
               
-              if (data.success && data.data.routes && data.data.routes.length > 0) {
-                const route = data.data.routes[0]
-                
-                // Add route source
-                mapInstanceRef.current.addSource("auto-route", {
-                  type: "geojson",
-                  data: {
-                    type: "Feature",
-                    properties: {
-                      from: from.name,
-                      to: to.name,
-                      distance: route.distance,
-                      duration: route.duration,
-                    },
-                    geometry: route.geometry,
-                  },
-                })
-                
-                // Add route outline (white background)
-                mapInstanceRef.current.addLayer({
-                  id: "auto-route-outline",
-                  type: "line",
-                  source: "auto-route",
-                  layout: {
-                    "line-join": "round",
-                    "line-cap": "round"
-                  },
-                  paint: {
-                    "line-color": "#ffffff",
-                    "line-width": 12,
-                    "line-opacity": 0.9
-                  }
-                })
-                
-                // Add main route line (green)
-                mapInstanceRef.current.addLayer({
-                  id: "auto-route",
-                  type: "line",
-                  source: "auto-route",
-                  layout: {
-                    "line-join": "round",
-                    "line-cap": "round"
-                  },
-                  paint: {
-                    "line-color": "#10b981",
-                    "line-width": 8,
-                    "line-opacity": 1.0
-                  }
-                })
-                
-                // Fit map to show the route
-                const coordinates = route.geometry.coordinates as [number, number][]
-                if (coordinates.length > 0) {
-                  const bounds = coordinates.reduce(
-                    (bounds: any, coord: [number, number]) => {
-                      return bounds.extend(coord)
-                    },
-                    new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
-                  )
-                  mapInstanceRef.current.fitBounds(bounds, { 
-                    padding: 150, 
-                    duration: 2000,
-                    maxZoom: 14
-                  })
+              // Remove existing route if it exists
+              if (mapInstanceRef.current.getSource(routeId)) {
+                if (mapInstanceRef.current.getLayer(`${routeId}-outline`)) {
+                  mapInstanceRef.current.removeLayer(`${routeId}-outline`)
                 }
-                
-                // Success notification
-                const distanceKm = (route.distance / 1000).toFixed(1)
-                const durationMin = Math.round(route.duration / 60)
-                
-                sendNotification(
-                  "Road Route Displayed", 
-                  `${from.name} → ${to.name}: ${distanceKm}km, ${durationMin}min (via roads)`
-                )
-
-                console.log("Road route created:", {
-                  from: from.name,
-                  to: to.name,
-                  distance: distanceKm + "km",
-                  duration: durationMin + "min",
-                  coordinates: coordinates.length,
-                  roadFollowing: true
-                })
-                
-                console.log("Road route created:", {
-                  from: from.name,
-                  to: to.name,
-                  distance: distanceKm + "km",
-                  duration: durationMin + "min",
-                  coordinates: coordinates.length
-                })
-                
-              } else {
-                console.error("No route found, creating fallback straight line")
-                // Fallback to straight line if API fails
-                createStraightLineRoute(from, to)
+                if (mapInstanceRef.current.getLayer(routeId)) {
+                  mapInstanceRef.current.removeLayer(routeId)
+                }
+                mapInstanceRef.current.removeSource(routeId)
               }
-            })
-            .catch(error => {
-              console.error("Route API error, creating fallback:", error)
+              
+              // Add route source
+              mapInstanceRef.current.addSource(routeId, {
+                type: "geojson",
+                data: {
+                  type: "Feature",
+                  properties: {
+                    from: from.name,
+                    to: to.name,
+                    distance: route.distance,
+                    duration: route.duration,
+                  },
+                  geometry: route.geometry,
+                },
+              })
+              
+              // Add route outline (white background)
+              mapInstanceRef.current.addLayer({
+                id: `${routeId}-outline`,
+                type: "line",
+                source: routeId,
+                layout: {
+                  "line-join": "round",
+                  "line-cap": "round"
+                },
+                paint: {
+                  "line-color": "#ffffff",
+                  "line-width": 5,
+                  "line-opacity": 0.9
+                }
+              })
+              
+              // Add main route line with specified color
+              mapInstanceRef.current.addLayer({
+                id: routeId,
+                type: "line",
+                source: routeId,
+                layout: {
+                  "line-join": "round",
+                  "line-cap": "round"
+                },
+                paint: {
+                  "line-color": color,
+                  "line-width": 8,
+                  "line-opacity": 1.0
+                }
+              })
+              
+              console.log(`Route created: ${from.name} → ${to.name} with color: ${color}`)
+              
+              // Fit map to show the route
+              const coordinates = route.geometry.coordinates as [number, number][]
+              if (coordinates.length > 0) {
+                const bounds = coordinates.reduce(
+                  (bounds: any, coord: [number, number]) => {
+                    return bounds.extend(coord)
+                  },
+                  new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
+                )
+                mapInstanceRef.current.fitBounds(bounds, { 
+                  padding: 150, 
+                  duration: 2000,
+                  maxZoom: 14
+                })
+              }
+              
+              // Success notification
+              const distanceKm = (route.distance / 1000).toFixed(1)
+              const durationMin = Math.round(route.duration / 60)
+              
+              sendNotification(
+                "Route Displayed", 
+                `${from.name} → ${to.name}: ${distanceKm}km, ${durationMin}min (${color === "#10b981" ? "Green" : "Red"} route)`
+              )
+              
+            } else {
+              console.error(`No route found for ${routeId}, creating fallback straight line`)
               // Fallback to straight line if API fails
-              createStraightLineRoute(from, to)
-            })
-          }
-        }, 3000) // 3 second delay to ensure map is fully loaded
+              createStraightLineRoute(from, to, routeId, color)
+            }
+          })
+          .catch(error => {
+            console.error(`Route API error for ${routeId}, creating fallback:`, error)
+            // Fallback to straight line if API fails
+            createStraightLineRoute(from, to, routeId, color)
+          })
+        }
         
         // Fallback function for straight line route
-        const createStraightLineRoute = (from: any, to: any) => {
+        const createStraightLineRoute = (from: any, to: any, routeId: string, color: string) => {
           try {
+            // Remove existing route if it exists
+            if (mapInstanceRef.current.getSource(routeId)) {
+              if (mapInstanceRef.current.getLayer(`${routeId}-outline`)) {
+                mapInstanceRef.current.removeLayer(`${routeId}-outline`)
+              }
+              if (mapInstanceRef.current.getLayer(routeId)) {
+                mapInstanceRef.current.removeLayer(routeId)
+              }
+              mapInstanceRef.current.removeSource(routeId)
+            }
+            
             // Calculate distance using Haversine formula
             const R = 6371000 // Earth's radius in meters
             const lat1 = from.coordinates[1] * Math.PI / 180
@@ -553,42 +647,44 @@ export function MapComponent() {
             }
             
             // Add route source
-            mapInstanceRef.current.addSource("auto-route", {
+            mapInstanceRef.current.addSource(routeId, {
               type: "geojson",
               data: routeData
             })
             
             // Add route outline (white background)
             mapInstanceRef.current.addLayer({
-              id: "auto-route-outline",
+              id: `${routeId}-outline`,
               type: "line",
-              source: "auto-route",
+              source: routeId,
               layout: {
                 "line-join": "round",
                 "line-cap": "round"
               },
               paint: {
                 "line-color": "#ffffff",
-                "line-width": 12,
+                "line-width": 8,
                 "line-opacity": 0.9
               }
             })
             
-            // Add main route line (green)
+            // Add main route line with specified color
             mapInstanceRef.current.addLayer({
-              id: "auto-route",
+              id: routeId,
               type: "line",
-              source: "auto-route",
+              source: routeId,
               layout: {
                 "line-join": "round",
                 "line-cap": "round"
               },
               paint: {
-                "line-color": "#10b981",
+                "line-color": color,
                 "line-width": 8,
                 "line-opacity": 1.0
               }
             })
+            
+            console.log(`Fallback route created: ${from.name} → ${to.name} with color: ${color}`)
             
             // Fit map to show both points and route
             const bounds = new (window as any).mapboxgl.LngLatBounds()
@@ -606,19 +702,97 @@ export function MapComponent() {
             
             sendNotification(
               "Direct Route Displayed", 
-              `${from.name} → ${to.name}: ${distanceKm}km, ~${durationMin}min (direct line)`
+              `${from.name} → ${to.name}: ${distanceKm}km, ~${durationMin}min (direct line, ${color === "#10b981" ? "Green" : "Red"} route)`
             )
             
             console.log("Fallback route created:", {
               from: from.name,
               to: to.name,
               distance: distanceKm + "km",
-              duration: durationMin + "min"
+              duration: durationMin + "min",
+              color: color
             })
             
           } catch (error) {
             console.error("Fallback route creation error:", error)
           }
+        }
+
+        // Automatically show routes based on role
+        setTimeout(() => {
+          if (currentRole === "ambulance-driver") {
+            // Single route for ambulance driver
+            const from = kottakkalDestinations["ambulance-from"]
+            const to = kottakkalDestinations["ambulance-destination"]
+            
+            if (from && to && mapInstanceRef.current) {
+              createRoute(from, to, "auto-route", getRouteColor(currentRole))
+            }
+          } else {
+            // Two routes for non-ambulance drivers
+            const from = kottakkalDestinations["custom-point"]
+            const to = kottakkalDestinations["new-bus-stand"]
+            const from2 = kottakkalDestinations["kottakkal-center"]
+            const to2 = kottakkalDestinations["kottakkal-bus-stand"]
+            
+            if (from && to && from2 && to2 && mapInstanceRef.current) {
+              // Route 1: from → to (GREEN)
+              createRoute(from, to, "auto-route-green", "#10b981")
+              
+              // Route 2: from2 → to2 (RED)
+              createRoute(from2, to2, "auto-route-red", "#ef4444")
+            }
+          }
+        }, 3000) // 3 second delay to ensure map is fully loaded
+
+        map.on("contextmenu", (e: any) => {
+          e.preventDefault()
+          const lngLat = e.lngLat
+          if (
+            lngLat.lng >= malappuramBounds[0][0] &&
+            lngLat.lng <= malappuramBounds[1][0] &&
+            lngLat.lat >= malappuramBounds[0][1] &&
+            lngLat.lat <= malappuramBounds[1][1]
+          ) {
+            setIncidentLocation([lngLat.lng, lngLat.lat])
+          setShowIncidentModal(true)
+          } else {
+            sendNotification("Location Error", "Incidents can only be reported within Malappuram district.")
+          }
+        })
+
+        // Add click handler for navigation hints
+        map.on("click", (e: any) => {
+          const lngLat = e.lngLat
+          if (userLocation) {
+            // Show navigation hint when clicking on map
+            const distance = Math.sqrt(
+              Math.pow(lngLat.lng - userLocation.coordinates[0], 2) +
+              Math.pow(lngLat.lat - userLocation.coordinates[1], 2)
+            )
+            
+            if (distance > 0.001) { // Only show for clicks away from current location
+              sendNotification(
+                "Navigation Hint", 
+                `Use the navigation buttons to get directions from your current location (${userLocation.coordinates[1].toFixed(4)}, ${userLocation.coordinates[0].toFixed(4)})`
+              )
+            }
+          } else {
+            sendNotification(
+              "Location Required", 
+              "Set your location first to enable navigation features"
+            )
+          }
+        })
+
+        map.on("error", (e: any) => {
+          setMapError("Map failed to load. Please check your Mapbox token.")
+        })
+
+        return () => {
+          if (userLocationWatchRef.current) navigator.geolocation.clearWatch(userLocationWatchRef.current)
+          map.remove()
+          mapInstanceRef.current = null
         }
       })
 
@@ -1156,16 +1330,10 @@ export function MapComponent() {
           },
         })
         
-        // Set route color based on specific conditions:
-        // - Red for ambulance routes (vehicleType === "ambulance")
-        // - Green for normal routes to bus stand or other destinations
-        let mainColor = "#10b981" // Default green
-        if (vehicleType === "ambulance") {
-          mainColor = "#ef4444" // Red for ambulance
-        } else if (currentRole === "ambulance-driver" && vehicleType === "normal") {
-          // If ambulance driver is doing normal routing, still use green
-          mainColor = "#10b981"
-        }
+        // Set route color based on role: red for ambulance-driver, green for others
+        const mainColor = getRouteColor(currentRole)
+        
+        console.log(`User route created with color: ${mainColor} for role: ${currentRole}, vehicleType: ${vehicleType}`)
         
         const outlineColor = "#ffffff"
         
@@ -1270,15 +1438,25 @@ export function MapComponent() {
   }
 
   const clearRoute = () => {
-    if (mapInstanceRef.current && routesRef.current["city-route"]) {
+    if (mapInstanceRef.current) {
       try {
-        mapInstanceRef.current.removeLayer("route-city-route-outline")
-        mapInstanceRef.current.removeLayer("route-city-route")
-        mapInstanceRef.current.removeSource("route-city-route")
-        delete routesRef.current["city-route"]
-        sendNotification("Route Cleared", "Route has been removed from the map")
+        // Clear all route types
+        const routeIds = ["auto-route", "auto-route-green", "auto-route-red"]
+        routeIds.forEach(routeId => {
+          if (mapInstanceRef.current.getSource(routeId)) {
+            if (mapInstanceRef.current.getLayer(`${routeId}-outline`)) {
+              mapInstanceRef.current.removeLayer(`${routeId}-outline`)
+            }
+            if (mapInstanceRef.current.getLayer(routeId)) {
+              mapInstanceRef.current.removeLayer(routeId)
+            }
+            mapInstanceRef.current.removeSource(routeId)
+          }
+        })
+        
+        sendNotification("Route Cleared", "All routes have been removed from the map")
       } catch (error) {
-        console.log("Clearing route...")
+        console.log("Clearing routes...", error)
       }
     }
   }
@@ -1395,6 +1573,23 @@ export function MapComponent() {
             "line-opacity": 1.0
           }
         })
+
+        if (currentRole === "ambulance-driver") {
+          mapInstanceRef.current.addLayer({
+            id: "auto-route",
+            type: "line",
+            source: "auto-route",
+            layout: {
+              "line-join": "round",
+              "line-cap": "round"
+            },
+            paint: {
+              "line-color": "#ef4444",
+              "line-width": 8,
+              "line-opacity": 1.0
+            }
+          })
+        }
         
         // Store route reference
         routesRef.current["city-route"] = {
@@ -1638,47 +1833,55 @@ export function MapComponent() {
           </button>
           {userLocation && (
             <>
-              <button
-                onClick={centerOnUser}
-                className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
-              >
-                Center on Me
-              </button>
-              <button
-                onClick={toggleAutoCenter}
-                className={`px-3 py-1 text-xs rounded ${autoCenter
-                    ? "bg-orange-500 text-white hover:bg-orange-600"
-                    : "bg-gray-500 text-white hover:bg-gray-600"
-                  }`}
-              >
-                Auto-Center: {autoCenter ? "ON" : "OFF"}
-              </button>
+              {currentRole !== "ambulance-driver" && (
+                <>
+                  <button
+                    onClick={centerOnUser}
+                    className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+                  >
+                    Center on Me
+                  </button>
+                  <button
+                    onClick={toggleAutoCenter}
+                    className={`px-3 py-1 text-xs rounded ${autoCenter
+                        ? "bg-orange-500 text-white hover:bg-orange-600"
+                        : "bg-gray-500 text-white hover:bg-gray-600"
+                      }`}
+                  >
+                    Auto-Center: {autoCenter ? "ON" : "OFF"}
+                  </button>
+                </>
+              )}
               {/* --- Navigation Options --- */}
-              <button
-                onClick={() => calculateRouteFromUser(kottakkalDest)}
-                className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Navigate to Kottakkal
-              </button>
-              <button
-                onClick={() => calculateRouteFromUser(kottakkalDestinations["kottakkal-bus-stand"].coordinates as [number, number], "normal")}
-                className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
-              >
-                🚌 Navigate to Bus Stand
-              </button>
-              {/* Ambulance route button available to all users */}
-              <button
-                onClick={drawAmbulanceRoute}
-                className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                🚑 Ambulance: Co-operative → Almas (Red Route)
-              </button>
-              <button
-                onClick={() => calculateRouteFromUser([75.7804, 11.2588])}
-                className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
-              >
-                Navigate to Hospital
-              </button>
+              {currentRole !== "ambulance-driver" && (
+                <>
+                  <button
+                    onClick={() => calculateRouteFromUser(kottakkalDest)}
+                    className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Navigate to Kottakkal
+                  </button>
+                  <button
+                    onClick={() => calculateRouteFromUser(kottakkalDestinations["kottakkal-bus-stand"].coordinates as [number, number], "normal")}
+                    className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                  >
+                    🚌 Navigate to Bus Stand
+                  </button>
+                  {/* Ambulance route button available to all users */}
+                  <button
+                    onClick={drawAmbulanceRoute}
+                    className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    🚑 Ambulance: Co-operative → Almas (Red Route)
+                  </button>
+                  <button
+                    onClick={() => calculateRouteFromUser([75.7804, 11.2588])}
+                    className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
+                  >
+                    Navigate to Hospital
+                  </button>
+                </>
+              )}
               
               {/* Driver-specific buttons */}
               {currentRole === "ambulance-driver" && (
@@ -1699,7 +1902,7 @@ export function MapComponent() {
               )}
             </>
           )}
-          {!userLocation && (
+          {!userLocation && currentRole !== "ambulance-driver" && (
             <button
               onClick={setUserLocationManually}
               className="px-3 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
@@ -1707,17 +1910,58 @@ export function MapComponent() {
               Set My Location
             </button>
           )}
+          
+          {/* API Test Button - Hidden for ambulance drivers */}
+          {currentRole !== "ambulance-driver" && (
+            <button
+              onClick={testAPIConnection}
+              className="px-3 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600"
+            >
+              🔧 Test API
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Malappuram District Indicator */}
-      <div className="absolute top-4 right-4 bg-blue-50 border border-blue-200 rounded-lg shadow-lg p-3">
+      {/* API Status Indicator */}
+      <div className={`absolute top-4 right-4 rounded-lg shadow-lg p-3 ${
+        apiStatus === 'connected' ? 'bg-green-50 border border-green-200' :
+        apiStatus === 'error' ? 'bg-red-50 border border-red-200' :
+        'bg-yellow-50 border border-yellow-200'
+      }`}>
         <div className="flex items-center space-x-2">
-          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-          <span className="text-sm font-medium text-blue-800">Malappuram District</span>
+          <div className={`w-3 h-3 rounded-full ${
+            apiStatus === 'connected' ? 'bg-green-500' :
+            apiStatus === 'error' ? 'bg-red-500' :
+            'bg-yellow-500 animate-pulse'
+          }`}></div>
+          <span className={`text-sm font-medium ${
+            apiStatus === 'connected' ? 'text-green-800' :
+            apiStatus === 'error' ? 'text-red-800' :
+            'text-yellow-800'
+          }`}>Location API</span>
         </div>
-        <div className="text-xs text-blue-600 mt-1">View restricted to district boundaries</div>
+        <div className={`text-xs mt-1 ${
+          apiStatus === 'connected' ? 'text-green-600' :
+          apiStatus === 'error' ? 'text-red-600' :
+          'text-yellow-600'
+        }`}>
+          {apiStatus === 'connected' ? '✅ Connected & Ready' :
+           apiStatus === 'error' ? '❌ Connection Error' :
+           '🔄 Connecting...'}
+        </div>
       </div>
+
+      {/* Malappuram District Indicator - Hidden for ambulance drivers */}
+      {currentRole !== "ambulance-driver" && (
+        <div className="absolute top-20 right-4 bg-blue-50 border border-blue-200 rounded-lg shadow-lg p-3">
+          <div className="flex items-center space-x-2">
+            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+            <span className="text-sm font-medium text-blue-800">Malappuram District</span>
+          </div>
+          <div className="text-xs text-blue-600 mt-1">View restricted to district boundaries</div>
+        </div>
+      )}
 
       {/* Driver Status Indicator */}
       {currentRole === "ambulance-driver" && (
@@ -1730,8 +1974,8 @@ export function MapComponent() {
         </div>
       )}
 
-      {/* Destination Selector Modal */}
-      {showDestinationSelector && (
+      {/* Destination Selector Modal - Hidden for ambulance drivers */}
+      {showDestinationSelector && currentRole !== "ambulance-driver" && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
@@ -1831,8 +2075,8 @@ export function MapComponent() {
 
       {/* Map Controls - Now available in Settings Modal */}
 
-      {/* Traffic Legend */}
-      <TrafficLegend showRoutes={showRoutes} />
+      {/* Traffic Legend - Hidden for ambulance drivers */}
+      {currentRole !== "ambulance-driver" && <TrafficLegend showRoutes={showRoutes} />}
 
       {/* Vehicle Info Panel */}
       {selectedVehicle && (
