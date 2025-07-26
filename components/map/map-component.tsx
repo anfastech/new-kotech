@@ -6,6 +6,7 @@ import { MapControls } from "./map-controls"
 import { VehicleInfoPanel } from "./vehicle-info-panel"
 import { IncidentReportModal } from "./incident-report-modal"
 import { TrafficLegend } from "./traffic-legend"
+import { TestCoordinate } from "./test-coordinate"
 import { useNotifications } from "@/components/notifications/notification-provider"
 interface Vehicle {
   id: string
@@ -65,6 +66,10 @@ export function MapComponent() {
   const [locationPermission, setLocationPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown")
   const [autoCenter, setAutoCenter] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
+  
+  // Test coordinates integration
+  const [testCoordinates, setTestCoordinates] = useState<{latitude: number, longitude: number} | null>(null)
+  const testCoordinatesIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const { socket, isConnected, connectionStatus } = useSocket()
   const { sendNotification } = useNotifications()
@@ -586,7 +591,7 @@ export function MapComponent() {
         setTimeout(() => {
           const selectedDest = kottakkalDestinations[selectedDestination as keyof typeof kottakkalDestinations]
           if (selectedDest) {
-            calculateRouteFromUser(selectedDest.coordinates, "normal")
+            calculateRouteFromUser(selectedDest.coordinates as [number, number], "normal")
             sendNotification(
               "Route Calculated", 
               `Auto-routing to ${selectedDest.name} from your location`
@@ -1108,7 +1113,7 @@ export function MapComponent() {
   const resetMapView = () => {
     if (mapInstanceRef.current) {
       mapInstanceRef.current.flyTo({
-        center: [75.9988, 11.0001], // Kottakkal or central Malappuram
+        center: userLocation ? userLocation.coordinates : [75.9988, 11.0001], // Use current location if available, else default
         zoom: 14,
         duration: 1000,
       })
@@ -1137,7 +1142,7 @@ export function MapComponent() {
     setShowDestinationSelector(false)
     
     if (userLocation) {
-      calculateRouteFromUser(destination.coordinates, "normal")
+      calculateRouteFromUser(destination.coordinates as [number, number], "normal")
       sendNotification(
         "Navigation Started", 
         `Routing to ${destination.name} from your current location`
@@ -1710,6 +1715,9 @@ export function MapComponent() {
           userLocation={userLocation}
         />
       )}
+
+      {/* Test Coordinate Component */}
+      <TestCoordinate />
     </div>
   )
 }
