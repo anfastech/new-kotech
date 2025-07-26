@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useSocket } from "@/components/providers/socket-provider"
-import { BarChart3, AlertTriangle, Users, Settings, ChevronLeft, ChevronRight } from "lucide-react"
+import { BarChart3, AlertTriangle, Users, Settings, ChevronLeft, ChevronRight, Lock, Ambulance } from "lucide-react"
 import Link from "next/link"
 import { useSettings } from "@/components/providers/settings-provider"
+import { useRole } from "@/components/providers/role-provider"
 import { GPSTrackingDialog } from "@/components/gps-tracking-dialog"
 import { TrafficInfoDialog } from "@/components/traffic-info-dialog"
 
@@ -16,6 +17,7 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const { connectionStatus } = useSocket()
   const { openSettings } = useSettings()
+  const { currentRole, setShowLoginDialog } = useRole()
 
   if (isCollapsed) {
     return (
@@ -87,6 +89,23 @@ export function Sidebar() {
               <Button variant="outline" className="w-full justify-start bg-transparent" onClick={openSettings}>
                 <Settings className="w-4 h-4 mr-2" />
                 Map Settings & Controls
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full justify-start bg-transparent" 
+                onClick={() => setShowLoginDialog(true)}
+              >
+                {currentRole === "ambulance-driver" ? (
+                  <>
+                    <Ambulance className="w-4 h-4 mr-2 text-red-500" />
+                    Driver Mode Active
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4 mr-2" />
+                    Switch to Driver Mode
+                  </>
+                )}
               </Button>
               <GPSTrackingDialog />
               <TrafficInfoDialog />

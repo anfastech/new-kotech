@@ -8,6 +8,7 @@ import { TrafficLegend } from "./traffic-legend"
 import { TestCoordinate } from "./test-coordinate"
 import { useNotifications } from "@/components/notifications/notification-provider"
 import { useMap } from "@/components/providers/map-provider"
+import { useRole } from "@/components/providers/role-provider"
 interface Vehicle {
   id: string
   type: "ambulance" | "fire" | "police" | "school_bus" | "city_bus" | "normal"
@@ -73,6 +74,7 @@ export function MapComponent() {
 
   const { socket, isConnected, connectionStatus } = useSocket()
   const { sendNotification } = useNotifications()
+  const { currentRole } = useRole()
   const {
     setVehicles: setVehiclesContext,
     setVisibleLayers: setVisibleLayersContext,
@@ -992,15 +994,20 @@ export function MapComponent() {
     "kottakkal-college": { name: "Kottakkal College", coordinates: [75.7834, 11.2618], icon: "🎓" },
     "kottakkal-temple": { name: "Kottakkal Temple", coordinates: [75.7854, 11.2638], icon: "🕍" },
     "kottakkal-park": { name: "Kottakkal Park", coordinates: [75.7864, 11.2648], icon: "🌳" },
-    "custom-point": { name: "Custom Point", coordinates: [75.994819, 11.006126], icon: "📍" }
+    "custom-point": { name: "Custom Point", coordinates: [75.994819, 11.006126], icon: "📍" },
+    // Update ambulance destination to Almas Hospital
+    "ambulance-destination": { name: "Almas Hospital", coordinates: [75.990876, 10.9999541], icon: "🏥" },
+    "ambulance-from": { name: "Co-operative Hospital", coordinates: [76.0043999, 11.0032025], icon: "🚑" },
   }
 
-  // Default destination
+  // Default destination for non-ambulance
   const kottakkalDest: [number, number] = [75.7804, 11.2588]
+  // Default destination for ambulance driver
+  const ambulanceDest: [number, number] = [75.990876, 10.9999541] // Almas Hospital
 
   const calculateRoute = async (vehicle: Vehicle, destination?: [number, number]) => {
     if (!mapInstanceRef.current) return
-    const endPoint = destination || kottakkalDest
+    const endPoint = destination || (vehicle.type === "ambulance" ? ambulanceDest : kottakkalDest)
     try {
       const response = await fetch("/api/navigation", {
         method: "POST",
@@ -1108,6 +1115,7 @@ export function MapComponent() {
     }
   }
 
+  // Update calculateRouteFromUser to use red route for ambulance-driver
   const calculateRouteFromUser = async (destination: [number, number], vehicleType = "normal") => {
     if (!userLocation || !mapInstanceRef.current) {
       sendNotification("Route Error", "Your location is required for routing")
@@ -1148,6 +1156,19 @@ export function MapComponent() {
           },
         })
         
+        // Set route color based on specific conditions:
+        // - Red for ambulance routes (vehicleType === "ambulance")
+        // - Green for normal routes to bus stand or other destinations
+        let mainColor = "#10b981" // Default green
+        if (vehicleType === "ambulance") {
+          mainColor = "#ef4444" // Red for ambulance
+        } else if (currentRole === "ambulance-driver" && vehicleType === "normal") {
+          // If ambulance driver is doing normal routing, still use green
+          mainColor = "#10b981"
+        }
+        
+        const outlineColor = "#ffffff"
+        
         // Add user route with dashed line style
         mapInstanceRef.current.addLayer({
           id: routeId,
@@ -1155,7 +1176,7 @@ export function MapComponent() {
           source: routeId,
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
-            "line-color": "#10b981",
+            "line-color": mainColor,
             "line-width": 6,
             "line-opacity": 0.9,
             "line-dasharray": [2, 2],
@@ -1169,7 +1190,7 @@ export function MapComponent() {
           source: routeId,
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
-            "line-color": "#ffffff",
+            "line-color": outlineColor,
             "line-width": 8,
             "line-opacity": 0.3,
             "line-dasharray": [2, 2],
@@ -1428,6 +1449,95 @@ export function MapComponent() {
     })
   }
 
+  // Add this function to draw ambulance route between two fixed points
+  const drawAmbulanceRoute = async () => {
+    const from = kottakkalDestinations["ambulance-from"].coordinates as [number, number]
+    const to = kottakkalDestinations["ambulance-destination"].coordinates as [number, number]
+    if (!mapInstanceRef.current || !isMapLoaded) {
+      sendNotification("Map Error", "Map is not loaded yet.")
+      return
+    }
+    try {
+      const response = await fetch("/api/navigation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: from,
+          destination: to,
+          vehicle_type: "ambulance",
+          avoid_congestion: true,
+        }),
+      })
+      const data = await response.json()
+      if (data.success && data.data.routes && data.data.routes.length > 0) {
+        const route = data.data.routes[0]
+        // Remove previous ambulance route if exists (catch errors)
+        try {
+          if (mapInstanceRef.current.getLayer("ambulance-fixed-route")) {
+            mapInstanceRef.current.removeLayer("ambulance-fixed-route")
+          }
+        } catch (e) { console.warn("No previous ambulance-fixed-route layer to remove") }
+        try {
+          if (mapInstanceRef.current.getSource("ambulance-fixed-route")) {
+            mapInstanceRef.current.removeSource("ambulance-fixed-route")
+          }
+        } catch (e) { console.warn("No previous ambulance-fixed-route source to remove") }
+        // Add new source
+        mapInstanceRef.current.addSource("ambulance-fixed-route", {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: route.geometry,
+          },
+        })
+        // Try to add above a known layer, fallback to default
+        let beforeLayerId = undefined
+        const layers = mapInstanceRef.current.getStyle().layers
+        if (layers) {
+          // Try to add above the first symbol or marker layer
+          const found = layers.find((l: any) => l.id.includes("marker") || l.type === "symbol")
+          if (found) beforeLayerId = found.id
+        }
+        try {
+          mapInstanceRef.current.addLayer({
+            id: "ambulance-fixed-route",
+            type: "line",
+            source: "ambulance-fixed-route",
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: {
+              "line-color": "#ef4444",
+              "line-width": 8,
+              "line-opacity": 1.0,
+            },
+          }, beforeLayerId)
+        } catch (e) {
+          console.error("Error adding ambulance-fixed-route layer:", e)
+          sendNotification("Map Error", "Could not add ambulance route layer.")
+          return
+        }
+        // Fit map to show the route
+        const coordinates = route.geometry.coordinates as [number, number][]
+        if (coordinates.length > 0) {
+          const bounds = coordinates.reduce(
+            (bounds: any, coord: [number, number]) => bounds.extend(coord),
+            new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
+          )
+          mapInstanceRef.current.fitBounds(bounds, { padding: 100, duration: 1500, maxZoom: 15 })
+        }
+        sendNotification(
+          "Ambulance Route",
+          `Co-operative Hospital → Almas Hospital: ${(route.distance / 1000).toFixed(1)}km, ${Math.round(route.duration / 60)}min (red route)`
+        )
+      } else {
+        sendNotification("Route Error", "No route found for ambulance.")
+      }
+    } catch (error) {
+      console.error("Ambulance route error:", error)
+      sendNotification("Route Error", "Failed to draw ambulance route")
+    }
+  }
+
   // Set map functions in context after all functions are defined
   useEffect(() => {
     setMapFunctions({
@@ -1504,8 +1614,11 @@ export function MapComponent() {
 
       {/* User Location Controls */}
       <div className="absolute top-20 right-4 bg-white rounded-lg shadow-lg p-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Location Tracking</span>
+        {/* Role-based Header */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium">
+            {currentRole === "ambulance-driver" ? "🚑 Driver Controls" : "📍 Location Tracking"}
+          </span>
           <div className={`w-3 h-3 rounded-full ${isTrackingUser ? "bg-green-500" : "bg-gray-400"}`} />
         </div>
         {userLocation && (
@@ -1548,11 +1661,42 @@ export function MapComponent() {
                 Navigate to Kottakkal
               </button>
               <button
+                onClick={() => calculateRouteFromUser(kottakkalDestinations["kottakkal-bus-stand"].coordinates as [number, number], "normal")}
+                className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+              >
+                🚌 Navigate to Bus Stand
+              </button>
+              {/* Ambulance route button available to all users */}
+              <button
+                onClick={drawAmbulanceRoute}
+                className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                🚑 Ambulance: Co-operative → Almas (Red Route)
+              </button>
+              <button
                 onClick={() => calculateRouteFromUser([75.7804, 11.2588])}
                 className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
               >
                 Navigate to Hospital
               </button>
+              
+              {/* Driver-specific buttons */}
+              {currentRole === "ambulance-driver" && (
+                <>
+                  <button
+                    onClick={() => calculateRouteFromUser(ambulanceDest, "ambulance")}
+                    className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    🚑 Emergency Route to Almas Hospital
+                  </button>
+                  <button
+                    onClick={() => sendNotification("Emergency Mode", "Emergency vehicle routing activated")}
+                    className="px-3 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                  >
+                    🚨 Emergency Mode
+                  </button>
+                </>
+              )}
             </>
           )}
           {!userLocation && (
@@ -1574,6 +1718,17 @@ export function MapComponent() {
         </div>
         <div className="text-xs text-blue-600 mt-1">View restricted to district boundaries</div>
       </div>
+
+      {/* Driver Status Indicator */}
+      {currentRole === "ambulance-driver" && (
+        <div className="absolute top-4 left-4 bg-red-50 border border-red-200 rounded-lg shadow-lg p-3">
+          <div className="flex items-center space-x-2">
+            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+            <span className="text-sm font-medium text-red-800">Emergency Driver</span>
+          </div>
+          <div className="text-xs text-red-600 mt-1">Priority routing & emergency features active</div>
+        </div>
+      )}
 
       {/* Destination Selector Modal */}
       {showDestinationSelector && (

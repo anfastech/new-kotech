@@ -1,0 +1,48 @@
+{
+  "destinations": {
+    "current-location": {
+      "name": "Current Location",
+      "coordinates": [75.994819, 11.006126],
+      "icon": "📍",
+      "description": "Your current GPS location"
+    },
+    "new-bus-stand": {
+      "name": "New Bus Stand",
+      "coordinates": [76.0047806, 11.0017263],
+      "icon": "🚌",
+      "description": "Kottakkal New Bus Stand"
+    },
+    "kottakkal-temple": {
+      "name": "Kottakkal Temple",
+      "coordinates": [75.9988, 11.0001],
+      "icon": "🕍",
+      "description": "Famous Kottakkal Temple"
+    },
+    "kottakkal-hospital": {
+      "name": "Kottakkal Hospital",
+      "coordinates": [75.9908152, 10.9998964],
+      "icon": "🏥",
+      "description": "Kottakkal Medical Center"
+    },
+    "kottakkal-market": {
+      "name": "Kottakkal Market",
+      "coordinates": [76.0054217, 11.0014716],
+      "icon": "🛒",
+      "description": "Kottakkal Central Market"
+    },
+    "go-to-location": {
+      "name": "Go To Location",
+      "coordinates": [0, 0],
+      "icon": "🎯",
+      "description": "Dynamic location from LocationIQ search",
+      "isDynamic": true
+    },
+    "locationiq-destination": {
+      "name": "LocationIQ Destination",
+      "coordinates": [0, 0],
+      "icon": "🎯",
+      "description": "Dynamic destination from LocationIQ search",
+      "isDynamic": true
+    }
+  }
+} 
