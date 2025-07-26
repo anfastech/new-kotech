@@ -1496,7 +1496,7 @@ export function MapComponent() {
         const layers = mapInstanceRef.current.getStyle().layers
         if (layers) {
           // Try to add above the first symbol or marker layer
-          const found = layers.find(l => l.id.includes("marker") || l.type === "symbol")
+          const found = layers.find((l: any) => l.id.includes("marker") || l.type === "symbol")
           if (found) beforeLayerId = found.id
         }
         try {
@@ -1666,6 +1666,13 @@ export function MapComponent() {
               >
                 🚌 Navigate to Bus Stand
               </button>
+              {/* Ambulance route button available to all users */}
+              <button
+                onClick={drawAmbulanceRoute}
+                className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                🚑 Ambulance: Co-operative → Almas (Red Route)
+              </button>
               <button
                 onClick={() => calculateRouteFromUser([75.7804, 11.2588])}
                 className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
@@ -1687,12 +1694,6 @@ export function MapComponent() {
                     className="px-3 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
                   >
                     🚨 Emergency Mode
-                  </button>
-                  <button
-                    onClick={drawAmbulanceRoute}
-                    className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-                  >
-                    🚑 Ambulance: Co-operative → Almas (Red Route)
                   </button>
                 </>
               )}

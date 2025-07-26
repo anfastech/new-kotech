@@ -10,7 +10,7 @@ export function RoleOverlay() {
 
   if (currentRole === "client") {
     return (
-      <div className="fixed top-4 left-4 z-40">
+      <div className="fixed hidden top-4 left-4 z-40">
         <Card className="w-80 bg-white/95 backdrop-blur-sm border-blue-200 shadow-lg">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center space-x-2">
@@ -45,8 +45,8 @@ export function RoleOverlay() {
 
   if (currentRole === "ambulance-driver") {
     return (
-      <div className="fixed top-4 left-4 z-40">
-        <Card className="w-80 bg-red-50/95 backdrop-blur-sm border-red-200 shadow-lg">
+      <div className="fixed hidden top-4 left-4 z-40">
+        <Card className="w-80 hidden bg-red-50/95 backdrop-blur-sm border-red-200 shadow-lg">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center space-x-2">
               <Ambulance className="w-4 h-4 text-red-600" />
