@@ -13,7 +13,13 @@ const trafficConditions: { [key: string]: { congestion: number; speed: number } 
 }
 
 // Road network data for Kottakkal with more detailed road segments
-const roadNetwork = {
+const roadNetwork: { [key: string]: {
+  name: string;
+  coordinates: [number, number][];
+  speed_limit: number;
+  lanes: number;
+  type: string;
+} } = {
   "main_road": {
     name: "Kottakkal Main Road",
     coordinates: [[75.7804, 11.2588], [75.7814, 11.2598], [75.7824, 11.2608], [75.7834, 11.2618], [75.7844, 11.2628]],
@@ -52,7 +58,10 @@ const roadNetwork = {
 }
 
 // Road nodes for shortest path calculation
-const roadNodes = {
+const roadNodes: { [key: string]: {
+  coordinates: [number, number];
+  connections: string[];
+} } = {
   "custom_point": { coordinates: [75.994819, 11.006126], connections: ["custom_point_road"] },
   "main_junction": { coordinates: [75.7804, 11.2588], connections: ["main_road", "hospital_road"] },
   "temple_junction": { coordinates: [75.7814, 11.2598], connections: ["main_road", "temple_street"] },
@@ -201,7 +210,7 @@ const getMapboxRoute = async (origin: [number, number], destination: [number, nu
     }
     
     const data = await response.json()
-    console.log("Mapbox Directions API response:", data)
+    // console.log("Mapbox Directions API response:", data)
     
     if (data.routes && data.routes.length > 0) {
       return data.routes[0]
@@ -209,7 +218,7 @@ const getMapboxRoute = async (origin: [number, number], destination: [number, nu
       throw new Error("No route found in Mapbox response")
     }
   } catch (error) {
-    console.error("Mapbox Directions API error:", error)
+    // console.error("Mapbox Directions API error:", error)
     throw error
   }
 }
@@ -329,12 +338,12 @@ const generateRouteWaypoints = (origin: [number, number], destination: [number, 
       waypoints.push(...roadPath) // Add all road waypoints
       waypoints.push(destination) // End at destination
       
-      console.log("Generated road-following route:", {
-        origin: origin,
-        destination: destination,
-        roadPathLength: roadPath.length,
-        totalWaypoints: waypoints.length
-      })
+      // console.log("Generated road-following route:", {
+      //   origin: origin,
+      //   destination: destination,
+      //   roadPathLength: roadPath.length,
+      //   totalWaypoints: waypoints.length
+      // })
     } else {
       // Fallback: create a route using road segments
       const fallbackPath = createRoadFollowingPath(origin, destination)
@@ -342,7 +351,7 @@ const generateRouteWaypoints = (origin: [number, number], destination: [number, 
     }
     
   } catch (error) {
-    console.error("Error generating road-following route:", error)
+    // console.error("Error generating road-following route:", error)
     // Final fallback to simple route
     waypoints.push(origin, destination)
   }
@@ -531,7 +540,7 @@ export async function POST(request: NextRequest) {
     const body: RouteRequest = await request.json()
     const { origin, destination, vehicle_type, avoid_congestion = false } = body
     
-    console.log("Navigation request:", { origin, destination, vehicle_type })
+    // console.log("Navigation request:", { origin, destination, vehicle_type })
 
     // Try to get route from Mapbox Directions API first
     try {

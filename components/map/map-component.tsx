@@ -33,6 +33,15 @@ interface UserLocation {
   timestamp: number
 }
 
+// Helper function to create a route
+const createRoute = (from: any, to: any, routeId: string, color: string) => {
+  // ... (your existing createRoute code)
+}
+
+// Fallback function for straight line route
+const createStraightLineRoute = (from: any, to: any, routeId: string, color: string) => {
+  // ... (your existing createStraightLineRoute code)
+}
 
 export function MapComponent() {
   const mapRef = useRef<HTMLDivElement>(null)
@@ -86,6 +95,12 @@ export function MapComponent() {
     setShowRoutes: setShowRoutesContext,
     setMapFunctions
   } = useMap()
+
+  const [hasRendered, setHasRendered] = useState(false);
+
+  useEffect(() => {
+    setHasRendered(true);
+  }, []);
 
   // ---- Mapbox & Geolocation setup ----
 
@@ -378,6 +393,8 @@ export function MapComponent() {
         maxBounds: malappuramBounds,
         maxZoom: 18,
         minZoom: 10,
+        fadeDuration: 0,
+        crossSourceCollisions: false,
       })
       map.addControl(new mapboxgl.NavigationControl(), "top-left")
       map.addControl(new mapboxgl.ScaleControl({ maxWidth: 80, unit: "metric" }), "bottom-left")
@@ -404,6 +421,7 @@ export function MapComponent() {
         setUserLocation(newLoc)
         setLocationError(null)
         if (!userLocation) sendNotification("Location Found", "Your current location has been detected")
+        // Auto-centering disabled - no automatic map movement
       })
       geolocateControl.on("trackuserlocationstart", () => { setIsTrackingUser(true); setAutoCenter(true) })
       geolocateControl.on("trackuserlocationend", () => { setIsTrackingUser(false); setAutoCenter(false) })
@@ -457,7 +475,7 @@ export function MapComponent() {
           const el = document.createElement('div')
           el.className = 'destination-marker'
           el.innerHTML = `
-            <div class="bg-white border-2 border-blue-500 rounded-full p-2 shadow-lg cursor-pointer hover:scale-110 transition-transform">
+            <div class="bg-white border-2 border-blue-500 rounded-full p-2 shadow-lg cursor-pointer">
               <div class="text-lg">${destination.icon}</div>
             </div>
           `
@@ -577,7 +595,6 @@ export function MapComponent() {
                 )
                 mapInstanceRef.current.fitBounds(bounds, { 
                   padding: 150, 
-                  duration: 2000,
                   maxZoom: 14
                 })
               }
@@ -692,7 +709,6 @@ export function MapComponent() {
             bounds.extend(to.coordinates)
             mapInstanceRef.current.fitBounds(bounds, { 
               padding: 250, 
-              duration: 2000,
               maxZoom: 14
             })
             
@@ -724,21 +740,18 @@ export function MapComponent() {
             // Single route for ambulance driver
             const from = kottakkalDestinations["ambulance-from"]
             const to = kottakkalDestinations["ambulance-destination"]
-            
             if (from && to && mapInstanceRef.current) {
               createRoute(from, to, "auto-route", getRouteColor(currentRole))
             }
           } else {
-            // Two routes for non-ambulance drivers
+            // Two routes for all other roles (including default)
             const from = kottakkalDestinations["custom-point"]
             const to = kottakkalDestinations["new-bus-stand"]
             const from2 = kottakkalDestinations["kottakkal-center"]
             const to2 = kottakkalDestinations["kottakkal-bus-stand"]
-            
             if (from && to && from2 && to2 && mapInstanceRef.current) {
               // Route 1: from → to (GREEN)
               createRoute(from, to, "auto-route-green", "#10b981")
-              
               // Route 2: from2 → to2 (RED)
               createRoute(from2, to2, "auto-route-red", "#ef4444")
             }
@@ -848,7 +861,7 @@ export function MapComponent() {
     } catch (error) {
       setMapError("Failed to initialize map. Please check your configuration.")
     }
-  }, [isMapboxLoaded, sendNotification, locationPermission, userLocation])
+  }, [isMapboxLoaded, sendNotification, locationPermission, userLocation, autoCenter])
 
   // ---- Geolocation Tracker ----
 
@@ -878,14 +891,7 @@ export function MapComponent() {
       setLocationError(null)
       updateUserLocationMarker(newLoc)
       
-      // Auto-center on first location fix
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.flyTo({ 
-          center: newLoc.coordinates, 
-          zoom: 16, 
-          duration: 1000 
-        })
-      }
+      // Auto-centering disabled - no automatic map movement
       
       // Auto-calculate route to selected destination when location is obtained
       if (newLoc.coordinates && isWithinMalappuramBounds(newLoc.coordinates)) {
@@ -993,14 +999,14 @@ export function MapComponent() {
       box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
       position: relative; cursor: pointer;
     `
-    // Pulsing ring
+    // Static ring (no animation)
     const ring = document.createElement("div")
     ring.style.cssText = `
       position: absolute;
       top: -6px; left: -6px;
       width: 36px; height: 36px;
       border: 2px solid rgba(59, 130, 246, 0.4);
-      border-radius: 50%; animation: pulse 2s infinite;
+      border-radius: 50%;
     `
     el.appendChild(ring)
     if (location.heading !== undefined && location.heading !== null) {
@@ -1052,17 +1058,13 @@ export function MapComponent() {
 
   const toggleAutoCenter = () => {
     setAutoCenter(!autoCenter)
-    if (!autoCenter && userLocation && mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo({
-        center: userLocation.coordinates, zoom: 16, duration: 1000,
-      })
-    }
+    // Auto-centering disabled - no automatic map movement
   }
 
   const centerOnUser = () => {
     if (userLocation && mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo({
-        center: userLocation.coordinates, zoom: 16, duration: 1000,
+      mapInstanceRef.current.jumpTo({
+        center: userLocation.coordinates, zoom: 16,
       })
     } else if (!userLocation) {
       sendNotification("Location Error", "User location not available")
@@ -1129,10 +1131,9 @@ export function MapComponent() {
         background-color: ${color};
         border: 2px solid white;
         box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        cursor: pointer; transition: transform 0.2s;
+        cursor: pointer;
       `
-      el.addEventListener("mouseenter", () => (el.style.transform = "scale(1.2)"))
-      el.addEventListener("mouseleave", () => (el.style.transform = "scale(1)"))
+
       const marker = new mapboxgl.Marker(el)
         .setLngLat(vehicle.coordinates)
         .addTo(mapInstanceRef.current)
@@ -1142,7 +1143,7 @@ export function MapComponent() {
       })
       markersRef.current[vehicle.id] = marker
     })
-  }, [vehicles, isMapLoaded, visibleLayers])
+  }, [vehicles, isMapLoaded, visibleLayers, hasRendered])
 
   const getVehicleColor = (type: string): string => {
     switch (type) {
@@ -1274,7 +1275,7 @@ export function MapComponent() {
             (bounds: any, coord: [number, number]) => bounds.extend(coord),
             new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0]),
           )
-          mapInstanceRef.current.fitBounds(bounds, { padding: 50, duration: 1000 })
+          mapInstanceRef.current.fitBounds(bounds, { padding: 50 })
         }
         
         // Show route information
@@ -1371,7 +1372,7 @@ export function MapComponent() {
             (bounds: any, coord: [number, number]) => bounds.extend(coord),
             new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0]),
           )
-          mapInstanceRef.current.fitBounds(bounds, { padding: 50, duration: 1000 })
+          mapInstanceRef.current.fitBounds(bounds, { padding: 50 })
         }
         
         sendNotification(
@@ -1429,10 +1430,9 @@ export function MapComponent() {
   // Map reset for Kottakkal or default Malappuram
   const resetMapView = () => {
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo({
+      mapInstanceRef.current.jumpTo({
         center: userLocation ? userLocation.coordinates : [75.9988, 11.0001], // Use API location if available, else default
         zoom: 14,
-        duration: 1000,
       })
     }
   }
@@ -1610,7 +1610,6 @@ export function MapComponent() {
           )
           mapInstanceRef.current.fitBounds(bounds, {
             padding: 100,
-            duration: 2000,
             maxZoom: 14
           })
         }
@@ -1718,7 +1717,7 @@ export function MapComponent() {
             (bounds: any, coord: [number, number]) => bounds.extend(coord),
             new (window as any).mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
           )
-          mapInstanceRef.current.fitBounds(bounds, { padding: 100, duration: 1500, maxZoom: 15 })
+          mapInstanceRef.current.fitBounds(bounds, { padding: 100, maxZoom: 15 })
         }
         sendNotification(
           "Ambulance Route",
@@ -1769,7 +1768,7 @@ export function MapComponent() {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-100">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <div className="rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <div className="text-gray-600">Loading Mapbox GL JS...</div>
         </div>
       </div>
@@ -1789,7 +1788,7 @@ export function MapComponent() {
                 : connectionStatus === "mock"
                   ? "bg-yellow-500"
                   : connectionStatus === "connecting"
-                    ? "bg-blue-500 animate-pulse"
+                    ? "bg-blue-500"
                     : "bg-red-500"
             }`}
           />
@@ -1933,7 +1932,7 @@ export function MapComponent() {
           <div className={`w-3 h-3 rounded-full ${
             apiStatus === 'connected' ? 'bg-green-500' :
             apiStatus === 'error' ? 'bg-red-500' :
-            'bg-yellow-500 animate-pulse'
+            'bg-yellow-500'
           }`}></div>
           <span className={`text-sm font-medium ${
             apiStatus === 'connected' ? 'text-green-800' :
@@ -1967,7 +1966,7 @@ export function MapComponent() {
       {currentRole === "ambulance-driver" && (
         <div className="absolute top-4 left-4 bg-red-50 border border-red-200 rounded-lg shadow-lg p-3">
           <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+            <div className="w-3 h-3 rounded-full bg-red-500"></div>
             <span className="text-sm font-medium text-red-800">Emergency Driver</span>
           </div>
           <div className="text-xs text-red-600 mt-1">Priority routing & emergency features active</div>
@@ -2011,7 +2010,7 @@ export function MapComponent() {
                       <button
                         key={key}
                         onClick={() => navigateToDestination(key)}
-                        className="flex items-center space-x-3 p-3 text-left border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        className="flex items-center space-x-3 p-3 text-left border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300"
                       >
                         <span className="text-xl">{destination.icon}</span>
                         <div className="flex-1">
@@ -2035,7 +2034,7 @@ export function MapComponent() {
                   <div className="text-xs font-medium text-blue-800 mb-2">🚀 Quick Route:</div>
                   <button
                     onClick={() => navigateBetweenPoints("custom-point", "new-bus-stand")}
-                    className="flex items-center space-x-2 p-2 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors w-full"
+                    className="flex items-center space-x-2 p-2 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 w-full"
                   >
                     <span>📍</span>
                     <span>Custom Point</span>
@@ -2057,7 +2056,7 @@ export function MapComponent() {
                             <button
                               key={toKey}
                               onClick={() => navigateBetweenPoints(fromKey, toKey)}
-                              className="flex items-center space-x-1 p-2 text-xs border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+                              className="flex items-center space-x-1 p-2 text-xs border border-gray-200 rounded hover:bg-gray-50"
                             >
                               <span>{toDest.icon}</span>
                               <span className="truncate">{toDest.name}</span>
