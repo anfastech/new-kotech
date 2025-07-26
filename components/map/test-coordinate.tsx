@@ -31,6 +31,7 @@ export function TestCoordinate() {
   const [isTracking, setIsTracking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [watchId, setWatchId] = useState<number | null>(null)
+  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null)
   
   // Location search states
   const [searchQuery, setSearchQuery] = useState("")
@@ -40,6 +41,34 @@ export function TestCoordinate() {
   const [selectedLocation, setSelectedLocation] = useState<SearchResult | null>(null)
   const [showAutocomplete, setShowAutocomplete] = useState(false)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // API location update function
+  const updateLocationAPI = async (latitude: number, longitude: number, accuracy: number, source: string, address?: string) => {
+    try {
+      const response = await fetch('/api/location', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientId: 'test-coordinate-client',
+          coordinates: [longitude, latitude],
+          accuracy,
+          source,
+          address
+        }),
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        console.log('Location API updated:', data)
+      } else {
+        console.error('Failed to update location API')
+      }
+    } catch (error) {
+      console.error('Location API error:', error)
+    }
+  }
 
   // Nominatim API for coordinate lookup
   const searchLocation = async (query: string) => {
@@ -142,12 +171,25 @@ export function TestCoordinate() {
     console.log('---')
     
     // Update coordinates state
-    setCoordinates({
+    const newCoordinates = {
       latitude: parseFloat(selectedResult.lat),
       longitude: parseFloat(selectedResult.lon),
       accuracy: 0, // No accuracy for searched locations
       timestamp: Date.now()
-    })
+    }
+    setCoordinates(newCoordinates)
+    
+          // Emit custom event for map component
+      window.dispatchEvent(new CustomEvent('test-coordinates-update', {
+        detail: {
+          latitude: newCoordinates.latitude,
+          longitude: newCoordinates.longitude,
+          source: 'search'
+        }
+      }))
+      
+      // Update location API
+      updateLocationAPI(newCoordinates.latitude, newCoordinates.longitude, 0, 'search', selectedResult.display_name)
   }
 
   const startTracking = () => {
@@ -179,6 +221,19 @@ export function TestCoordinate() {
       console.log('Accuracy:', position.coords.accuracy, 'meters')
       console.log('Timestamp:', new Date(position.timestamp).toLocaleString())
       console.log('---')
+      
+      // Emit custom event for map component
+      window.dispatchEvent(new CustomEvent('test-coordinates-update', {
+        detail: {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          source: 'gps'
+        }
+      }))
+      
+      // Update location API
+      updateLocationAPI(position.coords.latitude, position.coords.longitude, position.coords.accuracy, 'gps')
     }
 
     const error = (error: GeolocationPositionError) => {
@@ -204,6 +259,27 @@ export function TestCoordinate() {
       setWatchId(id)
       setIsTracking(true)
       console.log('Started real-time coordinate tracking...')
+      
+      // Set up 3-second interval to continuously emit coordinates
+      const interval = setInterval(() => {
+        if (coordinates) {
+          window.dispatchEvent(new CustomEvent('test-coordinates-update', {
+            detail: {
+              latitude: coordinates.latitude,
+              longitude: coordinates.longitude,
+              accuracy: coordinates.accuracy,
+              source: 'gps-interval'
+            }
+          }))
+          
+          // Update location API every 3 seconds
+          updateLocationAPI(coordinates.latitude, coordinates.longitude, coordinates.accuracy, 'gps-interval')
+          
+          console.log('3-second interval: Emitting coordinates to map and API')
+        }
+      }, 3000)
+      
+      setIntervalId(interval)
     } catch (err) {
       setError("Failed to start location tracking")
       console.error('Failed to start tracking:', err)
@@ -214,9 +290,13 @@ export function TestCoordinate() {
     if (watchId !== null) {
       navigator.geolocation.clearWatch(watchId)
       setWatchId(null)
-      setIsTracking(false)
-      console.log('Stopped coordinate tracking')
     }
+    if (intervalId !== null) {
+      clearInterval(intervalId)
+      setIntervalId(null)
+    }
+    setIsTracking(false)
+    console.log('Stopped coordinate tracking')
   }
 
   // Clear search results when clicking outside
@@ -237,11 +317,14 @@ export function TestCoordinate() {
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId)
       }
+      if (intervalId !== null) {
+        clearInterval(intervalId)
+      }
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current)
       }
     }
-  }, [watchId])
+  }, [watchId, intervalId])
 
   return (
     <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 min-w-[350px] z-50 max-h-[80vh] overflow-y-auto">
@@ -324,6 +407,11 @@ export function TestCoordinate() {
               <div><strong>Accuracy:</strong> ±{Math.round(coordinates.accuracy)}m</div>
             )}
             <div><strong>Updated:</strong> {new Date(coordinates.timestamp).toLocaleTimeString()}</div>
+            {isTracking && (
+              <div className="mt-1 text-green-600 text-xs">
+                🔄 Auto-refreshing every 3 seconds to map
+              </div>
+            )}
             {selectedLocation && (
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="text-gray-600 text-xs">

@@ -101,6 +101,61 @@ export function MapComponent() {
     loadMapbox()
   }, [])
 
+  // Location API integration
+  const fetchLocationFromAPI = async () => {
+    try {
+      const response = await fetch('/api/location?clientId=test-coordinate-client')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.data.location) {
+          const location = data.data.location
+          const newUserLocation: UserLocation = {
+            coordinates: location.coordinates,
+            accuracy: location.accuracy,
+            timestamp: location.timestamp,
+          }
+          setUserLocation(newUserLocation)
+          updateUserLocationMarker(newUserLocation)
+          console.log('Location fetched from API:', location)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch location from API:', error)
+    }
+  }
+
+  // Fetch location from API every 3 seconds
+  useEffect(() => {
+    const interval = setInterval(fetchLocationFromAPI, 3000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Test coordinates integration - listen for coordinates from test component
+  useEffect(() => {
+    const handleTestCoordinates = (event: CustomEvent) => {
+      const { latitude, longitude } = event.detail
+      setTestCoordinates({ latitude, longitude })
+      
+      // Update user location with test coordinates
+      const newUserLocation: UserLocation = {
+        coordinates: [longitude, latitude],
+        accuracy: 10, // Default accuracy for test coordinates
+        timestamp: Date.now(),
+      }
+      setUserLocation(newUserLocation)
+      updateUserLocationMarker(newUserLocation)
+      
+      console.log('Test coordinates received:', { latitude, longitude })
+    }
+
+    // Listen for custom event from test coordinates component
+    window.addEventListener('test-coordinates-update', handleTestCoordinates as EventListener)
+    
+    return () => {
+      window.removeEventListener('test-coordinates-update', handleTestCoordinates as EventListener)
+    }
+  }, [])
+
   // Geolocation permission and auto-start
   useEffect(() => {
     if ("permissions" in navigator) {
@@ -1113,7 +1168,7 @@ export function MapComponent() {
   const resetMapView = () => {
     if (mapInstanceRef.current) {
       mapInstanceRef.current.flyTo({
-        center: userLocation ? userLocation.coordinates : [75.9988, 11.0001], // Use current location if available, else default
+        center: userLocation ? userLocation.coordinates : [75.9988, 11.0001], // Use API location if available, else default
         zoom: 14,
         duration: 1000,
       })
@@ -1425,25 +1480,31 @@ export function MapComponent() {
         </div>
       </div>
 
-      {/* GPS Tracking & Navigation Panel */}
-      <div className="absolute top-4 left-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 min-w-[320px]">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${isTrackingUser ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-            <span className="text-sm font-medium">
-              {isTrackingUser ? 'GPS Tracking Active' : 'GPS Tracking'}
-            </span>
+              {/* GPS Tracking & Navigation Panel */}
+        <div className="absolute top-4 left-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 min-w-[320px]">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <div className={`w-3 h-3 rounded-full ${isTrackingUser ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+              <span className="text-sm font-medium">
+                {isTrackingUser ? 'GPS Tracking Active' : 'GPS Tracking'}
+              </span>
+            </div>
+            <button
+              onClick={isTrackingUser ? stopLocationTracking : startLocationTracking}
+              className={`px-3 py-1 text-xs rounded font-medium ${isTrackingUser
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : 'bg-green-500 text-white hover:bg-green-600'
+                }`}
+            >
+              {isTrackingUser ? 'Stop GPS' : 'Start GPS'}
+            </button>
           </div>
-          <button
-            onClick={isTrackingUser ? stopLocationTracking : startLocationTracking}
-            className={`px-3 py-1 text-xs rounded font-medium ${isTrackingUser
-                ? 'bg-red-500 text-white hover:bg-red-600'
-                : 'bg-green-500 text-white hover:bg-green-600'
-              }`}
-          >
-            {isTrackingUser ? 'Stop GPS' : 'Start GPS'}
-          </button>
-        </div>
+          
+          {/* API Status */}
+          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
+            <div className="text-xs text-blue-800 font-medium">🔄 Location API Active</div>
+            <div className="text-xs text-blue-600">Fetching location every 3 seconds</div>
+          </div>
         
         {/* GPS Status Banner */}
         {!userLocation && (
