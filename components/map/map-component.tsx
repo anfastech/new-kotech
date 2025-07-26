@@ -691,7 +691,7 @@ export function MapComponent() {
             bounds.extend(from.coordinates)
             bounds.extend(to.coordinates)
             mapInstanceRef.current.fitBounds(bounds, { 
-              padding: 150, 
+              padding: 250, 
               duration: 2000,
               maxZoom: 14
             })
@@ -1611,7 +1611,7 @@ export function MapComponent() {
           mapInstanceRef.current.fitBounds(bounds, {
             padding: 100,
             duration: 2000,
-            maxZoom: 15
+            maxZoom: 14
           })
         }
         
