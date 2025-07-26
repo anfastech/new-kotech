@@ -9,7 +9,7 @@ import { TrafficLegend } from "./traffic-legend"
 import { useNotifications } from "@/components/notifications/notification-provider"
 interface Vehicle {
   id: string
-  type: "ambulance" | "fire" | "school_bus" | "city_bus" | "normal"
+  type: "ambulance" | "fire" | "police" | "school_bus" | "city_bus" | "normal"
   coordinates: [number, number]
   status: string
   timestamp: number
@@ -37,6 +37,7 @@ export function MapComponent() {
   const markersRef = useRef<{ [key: string]: any }>({})
   const userMarkerRef = useRef<any>(null)
   const userLocationWatchRef = useRef<number | null>(null)
+  const destinationMarkersRef = useRef<{ [key: string]: any }>({})
   const [isMapLoaded, setIsMapLoaded] = useState(false)
   const [isMapboxLoaded, setIsMapboxLoaded] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
@@ -44,9 +45,12 @@ export function MapComponent() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [showIncidentModal, setShowIncidentModal] = useState(false)
   const [incidentLocation, setIncidentLocation] = useState<[number, number] | null>(null)
+  const [selectedDestination, setSelectedDestination] = useState<string>("kottakkal-center")
+  const [showDestinationSelector, setShowDestinationSelector] = useState(false)
   const [visibleLayers, setVisibleLayers] = useState({
     ambulance: true,
     fire: false,
+    police: false,
     school_bus: false,
     city_bus: false,
     normal: false,
@@ -92,7 +96,7 @@ export function MapComponent() {
     loadMapbox()
   }, [])
 
-  // Geolocation permission
+  // Geolocation permission and auto-start
   useEffect(() => {
     if ("permissions" in navigator) {
       navigator.permissions
@@ -102,10 +106,24 @@ export function MapComponent() {
           result.addEventListener("change", () => {
             setLocationPermission(result.state as any)
           })
+          
+          // Auto-start GPS tracking if permission is granted
+          if (result.state === "granted" && !isTrackingUser) {
+            setTimeout(() => {
+              startLocationTracking()
+            }, 2000) // Small delay to ensure map is loaded
+          }
         })
         .catch(() => setLocationPermission("unknown"))
+    } else {
+      // Fallback for browsers without permissions API
+      if (!isTrackingUser) {
+        setTimeout(() => {
+          startLocationTracking()
+        }, 3000)
+      }
     }
-  }, [])
+  }, [isTrackingUser])
 
   // ---- Map Initialization ----
 
@@ -182,11 +200,11 @@ export function MapComponent() {
             geometry: {
               type: "Polygon",
               coordinates: [[
-                [75.9988, 11.0001],  // Southwest (bottom-left)
-                [76.0029, 11.0001],  // Southeast (bottom-right)
-                [76.0029, 11.0016],  // Northeast (top-right)
-                [75.9988, 11.0016],  // Northwest (top-left)
-                [75.9988, 11.0001]   // Close the polygon
+                  [75.7680, 11.2370],  // Southwest (bottom-left)
+                  [75.7920, 11.2370],  // Southeast (bottom-right)
+                  [75.7920, 11.2730],  // Northeast (top-right)
+                  [75.7680, 11.2730],  // Northwest (top-left)
+                  [75.7680, 11.2370]   // Close the polygon
               ]]
             }
           }
@@ -206,6 +224,43 @@ export function MapComponent() {
         if (locationPermission === "prompt" || locationPermission === "unknown") {
           setTimeout(() => geolocateControl.trigger(), 1000)
         }
+        
+        // Add Kottakkal destination markers
+        Object.entries(kottakkalDestinations).forEach(([key, destination]) => {
+          const markerId = `destination-${key}`
+          
+          // Create marker element
+          const el = document.createElement('div')
+          el.className = 'destination-marker'
+          el.innerHTML = `
+            <div class="bg-white border-2 border-blue-500 rounded-full p-2 shadow-lg cursor-pointer hover:scale-110 transition-transform">
+              <div class="text-lg">${destination.icon}</div>
+            </div>
+          `
+          
+          // Create popup
+          const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
+            <div class="p-3 min-w-[200px]">
+              <h3 class="font-semibold text-sm mb-2 text-blue-600">${destination.name}</h3>
+              <div class="space-y-1 text-xs">
+                <div><strong>Coordinates:</strong> ${destination.coordinates[1].toFixed(6)}, ${destination.coordinates[0].toFixed(6)}</div>
+                <div class="mt-2 pt-2 border-t text-xs text-gray-600">
+                  <div>📍 Kottakkal City Point</div>
+                  <div>🗺️ Available for navigation</div>
+                </div>
+              </div>
+            </div>
+          `)
+          
+          // Add marker to map
+          const marker = new mapboxgl.Marker(el)
+            .setLngLat(destination.coordinates)
+            .setPopup(popup)
+            .addTo(map)
+          
+          // Store marker reference
+          destinationMarkersRef.current[key] = marker
+        })
       })
 
       map.on("contextmenu", (e: any) => {
@@ -218,9 +273,33 @@ export function MapComponent() {
           lngLat.lat <= malappuramBounds[1][1]
         ) {
           setIncidentLocation([lngLat.lng, lngLat.lat])
-          setShowIncidentModal(true)
+        setShowIncidentModal(true)
         } else {
           sendNotification("Location Error", "Incidents can only be reported within Malappuram district.")
+        }
+      })
+
+      // Add click handler for navigation hints
+      map.on("click", (e: any) => {
+        const lngLat = e.lngLat
+        if (userLocation) {
+          // Show navigation hint when clicking on map
+          const distance = Math.sqrt(
+            Math.pow(lngLat.lng - userLocation.coordinates[0], 2) +
+            Math.pow(lngLat.lat - userLocation.coordinates[1], 2)
+          )
+          
+          if (distance > 0.001) { // Only show for clicks away from current location
+            sendNotification(
+              "Navigation Hint", 
+              `Use the navigation buttons to get directions from your current location (${userLocation.coordinates[1].toFixed(4)}, ${userLocation.coordinates[0].toFixed(4)})`
+            )
+          }
+        } else {
+          sendNotification(
+            "Location Required", 
+            "Set your location first to enable navigation features"
+          )
         }
       })
 
@@ -246,7 +325,13 @@ export function MapComponent() {
       sendNotification("Location Error", "Geolocation is not supported by this browser")
       return
     }
-    const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    
+    const options = { 
+      enableHighAccuracy: true, 
+      timeout: 15000, 
+      maximumAge: 3000 
+    }
+    
     const success = (pos: GeolocationPosition) => {
       const newLoc: UserLocation = {
         coordinates: [pos.coords.longitude, pos.coords.latitude],
@@ -255,29 +340,70 @@ export function MapComponent() {
         speed: pos.coords.speed || undefined,
         timestamp: Date.now(),
       }
+      
       setUserLocation(newLoc)
       setLocationError(null)
       updateUserLocationMarker(newLoc)
-      if (autoCenter && mapInstanceRef.current) {
-        mapInstanceRef.current.flyTo({ center: newLoc.coordinates, zoom: 16, duration: 1000 })
+      
+      // Auto-center on first location fix
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.flyTo({ 
+          center: newLoc.coordinates, 
+          zoom: 16, 
+          duration: 1000 
+        })
       }
+      
+      // Auto-calculate route to selected destination when location is obtained
+      if (newLoc.coordinates && isWithinMalappuramBounds(newLoc.coordinates)) {
+        setTimeout(() => {
+          const selectedDest = kottakkalDestinations[selectedDestination as keyof typeof kottakkalDestinations]
+          if (selectedDest) {
+            calculateRouteFromUser(selectedDest.coordinates, "normal")
+            sendNotification(
+              "Route Calculated", 
+              `Auto-routing to ${selectedDest.name} from your location`
+            )
+          }
+        }, 1000) // Small delay to ensure marker is placed first
+      }
+      
       if (socket) socket.emit("user-location-update", { userId: "current-user", location: newLoc })
+      
+      sendNotification(
+        "GPS Active", 
+        `Location: ${newLoc.coordinates[1].toFixed(4)}, ${newLoc.coordinates[0].toFixed(4)} | Accuracy: ±${Math.round(newLoc.accuracy)}m`
+      )
     }
+    
     const error = (error: GeolocationPositionError) => {
       let msg = "Unknown error"
       switch (error.code) {
-        case error.PERMISSION_DENIED: msg = "Location access denied by user"; setLocationPermission("denied"); break
-        case error.POSITION_UNAVAILABLE: msg = "Location unavailable"; break
-        case error.TIMEOUT: msg = "Location request timed out"; break
+        case error.PERMISSION_DENIED: 
+          msg = "Location access denied by user"; 
+          setLocationPermission("denied"); 
+          break
+        case error.POSITION_UNAVAILABLE: 
+          msg = "Location unavailable"; 
+          break
+        case error.TIMEOUT: 
+          msg = "Location request timed out"; 
+          break
       }
       setLocationError(msg)
       setIsTrackingUser(false)
       sendNotification("Location Error", msg)
     }
+    
+    // Get initial position
     navigator.geolocation.getCurrentPosition(success, error, options)
+    
+    // Start continuous tracking
     const watchId = navigator.geolocation.watchPosition(success, error, options)
     userLocationWatchRef.current = watchId
     setIsTrackingUser(true)
+    
+    sendNotification("GPS Tracking", "Starting real-time location tracking...")
   }
 
   const stopLocationTracking = () => {
@@ -365,7 +491,7 @@ export function MapComponent() {
       closeOnClick: false,
     }).setHTML(`
       <div class="p-3 min-w-[200px]">
-        <h3 class="font-semibold text-sm mb-2 text-blue-600">📍 Your Location</h3>
+        <h3 class="font-semibold text-sm mb-2 text-blue-600">🎯 Navigation Start Point</h3>
         <div class="space-y-1 text-xs">
           <div><strong>Coordinates:</strong> ${location.coordinates[1].toFixed(6)}, ${location.coordinates[0].toFixed(6)}</div>
           <div><strong>Accuracy:</strong> ±${Math.round(location.accuracy)}m</div>
@@ -375,7 +501,8 @@ export function MapComponent() {
         </div>
         <div class="mt-2 pt-2 border-t text-xs text-gray-600">
           <div>✅ Within Malappuram District</div>
-          <div>🛣️ Available for routing</div>
+          <div>🛣️ Ready for navigation</div>
+          <div>🎯 Use navigation buttons to get directions</div>
         </div>
       </div>
     `)
@@ -407,6 +534,18 @@ export function MapComponent() {
     } else if (!userLocation) {
       sendNotification("Location Error", "User location not available")
     }
+  }
+
+  // Set user location manually to the provided coordinates
+  const setUserLocationManually = () => {
+    const manualLocation: UserLocation = {
+      coordinates: [75.8252, 11.2329], // Your provided coordinates
+      accuracy: 59687,
+      timestamp: Date.now(),
+    }
+    setUserLocation(manualLocation)
+    setLocationError(null)
+    sendNotification("Location Set", "Your location has been set to the provided coordinates")
   }
 
   // ---- Vehicles ----
@@ -482,60 +621,113 @@ export function MapComponent() {
 
   // ---- Map Controls / Routing ----
 
-  // "Navigate to Kottakkal" coords
-  const kottakkalDest: [number, number] = [75.9988, 11.0001]
+  // Kottakkal city destinations
+  const kottakkalDestinations = {
+    "kottakkal-center": { name: "Kottakkal Center", coordinates: [75.7804, 11.2588], icon: "🏙️" },
+    "kottakkal-hospital": { name: "Kottakkal Hospital", coordinates: [75.7804, 11.2588], icon: "🏥" },
+    "kottakkal-bus-stand": { name: "Kottakkal Bus Stand", coordinates: [75.7824, 11.2608], icon: "🚌" },
+    "new-bus-stand": { name: "New Bus Stand", coordinates: [76.0047806, 11.0017263], icon: "🚌" },
+    "kottakkal-railway": { name: "Kottakkal Railway Station", coordinates: [75.7844, 11.2628], icon: "🚂" },
+    "kottakkal-market": { name: "Kottakkal Market", coordinates: [75.7814, 11.2598], icon: "🛒" },
+    "kottakkal-college": { name: "Kottakkal College", coordinates: [75.7834, 11.2618], icon: "🎓" },
+    "kottakkal-temple": { name: "Kottakkal Temple", coordinates: [75.7854, 11.2638], icon: "🕍" },
+    "kottakkal-park": { name: "Kottakkal Park", coordinates: [75.7864, 11.2648], icon: "🌳" },
+    "custom-point": { name: "Custom Point", coordinates: [75.994819, 11.006126], icon: "📍" }
+  }
+
+  // Default destination
+  const kottakkalDest: [number, number] = [75.7804, 11.2588]
 
   const calculateRoute = async (vehicle: Vehicle, destination?: [number, number]) => {
     if (!mapInstanceRef.current) return
     const endPoint = destination || kottakkalDest
     try {
-      const response = await fetch("/api/routes", {
+      const response = await fetch("/api/navigation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          start: vehicle.coordinates,
-          end: endPoint,
+          origin: vehicle.coordinates,
+          destination: endPoint,
           vehicle_type: vehicle.type,
           avoid_congestion: true,
         }),
       })
       const data = await response.json()
-      if (data.success && data.route) {
+      if (data.success && data.data.routes && data.data.routes.length > 0) {
+        const route = data.data.routes[0]
+        
+        // Remove existing route if it exists
         if (routesRef.current[vehicle.id]) {
           mapInstanceRef.current.removeLayer(`route-${vehicle.id}`)
           mapInstanceRef.current.removeSource(`route-${vehicle.id}`)
         }
+        
+        // Add new route source
         mapInstanceRef.current.addSource(`route-${vehicle.id}`, {
           type: "geojson",
           data: {
             type: "Feature",
-            properties: {},
-            geometry: data.route.geometry,
+            properties: {
+              vehicle_type: vehicle.type,
+              distance: route.distance,
+              duration: route.duration,
+            },
+            geometry: route.geometry,
           },
         })
-        const routeColor = vehicle.type === "ambulance" ? "#ef4444" : vehicle.type === "fire" ? "#f97316" : "#3b82f6"
+        
+        // Determine route color based on vehicle type
+        const routeColor = vehicle.type === "ambulance" ? "#ef4444" : 
+                          vehicle.type === "fire" ? "#f97316" : 
+                          vehicle.type === "police" ? "#8b5cf6" : "#3b82f6"
+        
+        // Add route layer with enhanced styling
         mapInstanceRef.current.addLayer({
           id: `route-${vehicle.id}`,
           type: "line",
           source: `route-${vehicle.id}`,
-          layout: { "line-join": "round", "line-cap": "round" },
+          layout: { 
+            "line-join": "round", 
+            "line-cap": "round" 
+          },
           paint: {
             "line-color": routeColor,
-            "line-width": 4,
-            "line-opacity": 0.8,
+            "line-width": 6,
+            "line-opacity": 0.9,
           },
         })
+        
+        // Add route outline for better visibility
+        mapInstanceRef.current.addLayer({
+          id: `route-${vehicle.id}-outline`,
+          type: "line",
+          source: `route-${vehicle.id}`,
+          layout: { 
+            "line-join": "round", 
+            "line-cap": "round" 
+          },
+          paint: {
+            "line-color": "#ffffff",
+            "line-width": 8,
+            "line-opacity": 0.3,
+          },
+        }, `route-${vehicle.id}`)
+        
+        // Store route reference
         routesRef.current[vehicle.id] = {
           source: `route-${vehicle.id}`,
           layer: `route-${vehicle.id}`,
-          data: data.route,
+          outlineLayer: `route-${vehicle.id}-outline`,
+          data: route,
         }
+        
         setVehicleRoutes((prev) => ({
           ...prev,
-          [vehicle.id]: data.route,
+          [vehicle.id]: route,
         }))
-        // Fit map to route
-        const coordinates = data.route.geometry.coordinates
+        
+        // Fit map to route bounds
+        const coordinates = route.geometry.coordinates
         if (coordinates.length > 0) {
           const bounds = coordinates.reduce(
             (bounds: any, coord: [number, number]) => bounds.extend(coord),
@@ -543,8 +735,15 @@ export function MapComponent() {
           )
           mapInstanceRef.current.fitBounds(bounds, { padding: 50, duration: 1000 })
         }
+        
+        // Show route information
+        sendNotification(
+          "Route Calculated", 
+          `${vehicle.type} route: ${(route.distance / 1000).toFixed(1)}km, ${Math.round(route.duration / 60)}min`
+        )
       }
     } catch (error) {
+      console.error("Route calculation error:", error)
       sendNotification("Route Error", "Failed to calculate route for vehicle")
     }
   }
@@ -555,28 +754,41 @@ export function MapComponent() {
       return null
     }
     try {
-      const response = await fetch("/api/routes", {
+      const response = await fetch("/api/navigation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          start: userLocation.coordinates,
-          end: destination,
+          origin: userLocation.coordinates,
+          destination: destination,
           vehicle_type: vehicleType,
           avoid_congestion: true,
-          user_location: true,
         }),
       })
       const data = await response.json()
-      if (data.success && data.route) {
+      if (data.success && data.data.routes && data.data.routes.length > 0) {
+        const route = data.data.routes[0]
         const routeId = `user-route-${Date.now()}`
+        
+        // Remove existing user route if it exists
+        if (mapInstanceRef.current.getLayer(routeId)) {
+          mapInstanceRef.current.removeLayer(routeId)
+          mapInstanceRef.current.removeSource(routeId)
+        }
+        
         mapInstanceRef.current.addSource(routeId, {
           type: "geojson",
           data: {
             type: "Feature",
-            properties: {},
-            geometry: data.route.geometry,
+            properties: {
+              user_route: true,
+              distance: route.distance,
+              duration: route.duration,
+            },
+            geometry: route.geometry,
           },
         })
+        
+        // Add user route with dashed line style
         mapInstanceRef.current.addLayer({
           id: routeId,
           type: "line",
@@ -584,12 +796,27 @@ export function MapComponent() {
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
             "line-color": "#10b981",
-            "line-width": 4,
-            "line-opacity": 0.8,
+            "line-width": 6,
+            "line-opacity": 0.9,
             "line-dasharray": [2, 2],
           },
         })
-        const coordinates = data.route.geometry.coordinates
+        
+        // Add outline for better visibility
+        mapInstanceRef.current.addLayer({
+          id: `${routeId}-outline`,
+          type: "line",
+          source: routeId,
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": "#ffffff",
+            "line-width": 8,
+            "line-opacity": 0.3,
+            "line-dasharray": [2, 2],
+          },
+        }, routeId)
+        
+        const coordinates = route.geometry.coordinates
         if (coordinates.length > 0) {
           const bounds = coordinates.reduce(
             (bounds: any, coord: [number, number]) => bounds.extend(coord),
@@ -597,28 +824,40 @@ export function MapComponent() {
           )
           mapInstanceRef.current.fitBounds(bounds, { padding: 50, duration: 1000 })
         }
-        sendNotification("Navigation", "Route to Kottakkal set")
-        return data.route
+        
+        sendNotification(
+          "Navigation", 
+          `Route to destination: ${(route.distance / 1000).toFixed(1)}km, ${Math.round(route.duration / 60)}min`
+        )
+        
+        return route
       }
     } catch (error) {
+      console.error("User route calculation error:", error)
       sendNotification("Route Error", "Failed to calculate route from your location")
+      return null
     }
-    return null
   }
 
   const toggleRoutes = () => {
     if (showRoutes) {
+      // Remove all route layers and sources
       Object.keys(routesRef.current).forEach((vehicleId) => {
         if (mapInstanceRef.current) {
-          mapInstanceRef.current.removeLayer(`route-${vehicleId}`)
-          mapInstanceRef.current.removeSource(`route-${vehicleId}`)
+          const routeRef = routesRef.current[vehicleId]
+          if (routeRef.outlineLayer) {
+            mapInstanceRef.current.removeLayer(routeRef.outlineLayer)
+          }
+          mapInstanceRef.current.removeLayer(routeRef.layer)
+          mapInstanceRef.current.removeSource(routeRef.source)
         }
       })
       routesRef.current = {}
       setVehicleRoutes({})
     } else {
+      // Show routes for emergency vehicles
       vehicles
-        .filter((v) => v.type === "ambulance")
+        .filter((v) => v.type === "ambulance" || v.type === "fire" || v.type === "police")
         .forEach((v) => calculateRoute(v))
     }
     setShowRoutes(!showRoutes)
@@ -646,6 +885,142 @@ export function MapComponent() {
         zoom: 14,
         duration: 1000,
       })
+    }
+  }
+
+  const navigateToDestination = (destinationKey: string) => {
+    const destination = kottakkalDestinations[destinationKey as keyof typeof kottakkalDestinations]
+    if (!destination) return
+    
+    setSelectedDestination(destinationKey)
+    setShowDestinationSelector(false)
+    
+    if (userLocation) {
+      calculateRouteFromUser(destination.coordinates, "normal")
+      sendNotification(
+        "Navigation Started", 
+        `Routing to ${destination.name} from your current location`
+      )
+    } else {
+      sendNotification(
+        "Location Required", 
+        "Please enable GPS tracking to start navigation"
+      )
+    }
+  }
+
+  const navigateBetweenPoints = (fromKey: string, toKey: string) => {
+    const from = kottakkalDestinations[fromKey as keyof typeof kottakkalDestinations]
+    const to = kottakkalDestinations[toKey as keyof typeof kottakkalDestinations]
+    
+    if (!from || !to) return
+    
+    if (mapInstanceRef.current) {
+      try {
+        fetch("/api/navigation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            origin: from.coordinates,
+            destination: to.coordinates,
+            vehicle_type: "normal",
+            avoid_congestion: true,
+          }),
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success && data.data.routes && data.data.routes.length > 0) {
+            const route = data.data.routes[0]
+            
+            // Remove existing route if it exists
+            if (routesRef.current["city-route"]) {
+              mapInstanceRef.current.removeLayer("route-city-route")
+              mapInstanceRef.current.removeSource("route-city-route")
+              mapInstanceRef.current.removeLayer("route-city-route-outline")
+            }
+            
+            // Add new route source
+            mapInstanceRef.current.addSource("route-city-route", {
+              type: "geojson",
+              data: {
+                type: "Feature",
+                properties: {
+                  from: from.name,
+                  to: to.name,
+                  distance: route.distance,
+                  duration: route.duration,
+                },
+                geometry: route.geometry,
+              },
+            })
+            
+            // Add route layer
+            mapInstanceRef.current.addLayer({
+              id: "route-city-route",
+              type: "line",
+              source: "route-city-route",
+              layout: { 
+                "line-join": "round", 
+                "line-cap": "round" 
+              },
+              paint: {
+                "line-color": "#10b981",
+                "line-width": 6,
+                "line-opacity": 0.9,
+              },
+            })
+            
+            // Add route outline
+            mapInstanceRef.current.addLayer({
+              id: "route-city-route-outline",
+              type: "line",
+              source: "route-city-route",
+              layout: { 
+                "line-join": "round", 
+                "line-cap": "round" 
+              },
+              paint: {
+                "line-color": "#ffffff",
+                "line-width": 8,
+                "line-opacity": 0.3,
+              },
+            }, "route-city-route")
+            
+            // Store route reference
+            routesRef.current["city-route"] = {
+              source: "route-city-route",
+              layer: "route-city-route",
+              outlineLayer: "route-city-route-outline",
+              data: route,
+            }
+            
+            // Fit map to route bounds
+            const coordinates = route.geometry.coordinates as [number, number][]
+            if (coordinates.length > 0) {
+              const firstCoord = coordinates[0]
+              const bounds = coordinates.reduce(
+                (bounds: any, coord: [number, number]) => {
+                  return bounds.extend(coord)
+                },
+                new (window as any).mapboxgl.LngLatBounds(firstCoord, firstCoord)
+              )
+              mapInstanceRef.current.fitBounds(bounds, { padding: 50, duration: 1000 })
+            }
+            
+            sendNotification(
+              "City Route", 
+              `${from.name} → ${to.name}: ${(route.distance / 1000).toFixed(1)}km, ${Math.round(route.duration / 60)}min`
+            )
+          }
+        })
+        .catch(error => {
+          console.error("Route calculation error:", error)
+          sendNotification("Route Error", "Failed to calculate route between points")
+        })
+      } catch (error) {
+        console.error("Route calculation error:", error)
+        sendNotification("Route Error", "Failed to calculate route between points")
+      }
     }
   }
 
@@ -684,7 +1059,7 @@ export function MapComponent() {
       <div ref={mapRef} className="w-full h-full" />
 
       {/* Connection Status */}
-      <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-3">
+      <div className="absolute top-20 right-4 bg-white rounded-lg shadow-lg p-3">
         <div className="flex items-center space-x-2">
           <div
             className={`w-3 h-3 rounded-full ${connectionStatus === "connected"
@@ -694,7 +1069,7 @@ export function MapComponent() {
                   : connectionStatus === "connecting"
                     ? "bg-blue-500 animate-pulse"
                     : "bg-red-500"
-              }`}
+            }`}
           />
           <span className="text-sm font-medium">
             {connectionStatus === "connected"
@@ -748,20 +1123,156 @@ export function MapComponent() {
               >
                 Auto-Center: {autoCenter ? "ON" : "OFF"}
               </button>
-              {/* --- Navigate to Kottakkal --- */}
+              {/* --- Navigation Options --- */}
               <button
                 onClick={() => calculateRouteFromUser(kottakkalDest)}
                 className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
               >
                 Navigate to Kottakkal
               </button>
+              <button
+                onClick={() => calculateRouteFromUser([75.7804, 11.2588])}
+                className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
+              >
+                Navigate to Hospital
+              </button>
             </>
+          )}
+          {!userLocation && (
+            <button
+              onClick={setUserLocationManually}
+              className="px-3 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+            >
+              Set My Location
+            </button>
           )}
         </div>
       </div>
 
+      {/* GPS Tracking & Navigation Panel */}
+      <div className="absolute top-4 left-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 min-w-[320px]">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${isTrackingUser ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+            <span className="text-sm font-medium">
+              {isTrackingUser ? 'GPS Tracking Active' : 'GPS Tracking'}
+            </span>
+          </div>
+          <button
+            onClick={isTrackingUser ? stopLocationTracking : startLocationTracking}
+            className={`px-3 py-1 text-xs rounded font-medium ${isTrackingUser
+                ? 'bg-red-500 text-white hover:bg-red-600'
+                : 'bg-green-500 text-white hover:bg-green-600'
+              }`}
+          >
+            {isTrackingUser ? 'Stop GPS' : 'Start GPS'}
+          </button>
+        </div>
+        
+        {/* GPS Status Banner */}
+        {!userLocation && (
+          <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded">
+            <div className="text-xs text-yellow-800 font-medium">📍 GPS Required for Navigation</div>
+            <div className="text-xs text-yellow-600">Enable GPS tracking to start navigating</div>
+          </div>
+        )}
+        
+        {userLocation && (
+          <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded">
+            <div className="text-xs text-green-800 font-medium">✅ GPS Active - Ready to Navigate</div>
+            <div className="text-xs text-green-600">Your location: {userLocation.coordinates[1].toFixed(4)}, {userLocation.coordinates[0].toFixed(4)}</div>
+          </div>
+        )}
+        
+        {userLocation ? (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+              <div className="font-medium mb-1">📍 Your Current Location:</div>
+              <div>Latitude: {userLocation.coordinates[1].toFixed(6)}</div>
+              <div>Longitude: {userLocation.coordinates[0].toFixed(6)}</div>
+              <div>Accuracy: ±{Math.round(userLocation.accuracy)}m</div>
+              {userLocation.speed && (
+                <div>Speed: {Math.round(userLocation.speed * 3.6)} km/h</div>
+              )}
+              <div>Updated: {new Date(userLocation.timestamp).toLocaleTimeString()}</div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-gray-700">Navigation Options:</div>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={() => setShowDestinationSelector(!showDestinationSelector)}
+                  className="px-3 py-2 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                >
+                  🗺️ Choose Destination
+                </button>
+                <button
+                  onClick={() => navigateToDestination("kottakkal-temple")}
+                  className="px-3 py-2 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
+                >
+                  🕍 To Temple (Example)
+                </button>
+                <button
+                  onClick={() => navigateToDestination("custom-point")}
+                  className="px-3 py-2 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                >
+                  📍 To Custom Point
+                </button>
+                <button
+                  onClick={() => navigateToDestination("new-bus-stand")}
+                  className="px-3 py-2 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                >
+                  🚌 To New Bus Stand
+                </button>
+                <button
+                  onClick={() => navigateBetweenPoints("custom-point", "new-bus-stand")}
+                  className="px-3 py-2 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                >
+                  📍 → 🚌 Custom Point to Bus Stand
+                </button>
+              </div>
+              <div className="text-xs text-gray-500 mt-2 p-2 bg-gray-50 rounded">
+                <div className="font-medium mb-1">How to navigate:</div>
+                <div>1. Enable GPS tracking above</div>
+                <div>2. Click "Choose Destination"</div>
+                <div>3. Select your destination</div>
+                <div>4. Follow the blue route line</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+                      <div className="text-center py-4">
+              <div className="text-xs text-gray-500 mb-2">
+                {isTrackingUser ? 'Getting your location...' : 'Enable GPS to start navigation'}
+              </div>
+              {!isTrackingUser && (
+                <div className="space-y-2">
+                  <button
+                    onClick={startLocationTracking}
+                    className="px-4 py-2 text-sm bg-green-500 text-white rounded hover:bg-green-600 transition-colors w-full"
+                  >
+                    🎯 Start GPS Tracking
+                  </button>
+                  <button
+                    onClick={setUserLocationManually}
+                    className="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors w-full"
+                  >
+                    📍 Set Manual Location
+                  </button>
+                </div>
+              )}
+            </div>
+        )}
+        
+        {locationError && (
+          <div className="text-xs text-red-600 mt-2 p-2 bg-red-50 rounded border border-red-200">
+            ⚠️ {locationError}
+          </div>
+        )}
+      </div>
+
       {/* Malappuram District Indicator */}
-      <div className="absolute top-4 left-4 bg-blue-50 border border-blue-200 rounded-lg shadow-lg p-3">
+      <div className="absolute top-4 right-4 bg-blue-50 border border-blue-200 rounded-lg shadow-lg p-3">
         <div className="flex items-center space-x-2">
           <div className="w-3 h-3 rounded-full bg-blue-500"></div>
           <span className="text-sm font-medium text-blue-800">Malappuram District</span>
@@ -769,36 +1280,104 @@ export function MapComponent() {
         <div className="text-xs text-blue-600 mt-1">View restricted to district boundaries</div>
       </div>
 
-      {/* Supplementary Controls Duplicate Panel? (optional, can remove if redundant with above) */}
-      <div className="absolute top-4 left-64 bg-white rounded-lg shadow-lg p-3">
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${isTrackingUser ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-            <span className="text-sm font-medium">
-              {isTrackingUser ? 'Location Active' : 'Location Inactive'}
-            </span>
+      {/* Destination Selector Modal */}
+      {showDestinationSelector && (
+        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">🗺️ Kottakkal Navigation</h3>
+              <button
+                onClick={() => setShowDestinationSelector(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Navigate from your location to:</h4>
+                {!userLocation ? (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="text-sm text-yellow-800 font-medium mb-1">📍 GPS Required</div>
+                    <div className="text-xs text-yellow-600 mb-3">Please enable GPS tracking first to start navigation</div>
+                    <button
+                      onClick={() => {
+                        setShowDestinationSelector(false)
+                        startLocationTracking()
+                      }}
+                      className="px-3 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                    >
+                      🎯 Enable GPS Now
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2">
+                    {Object.entries(kottakkalDestinations).map(([key, destination]) => (
+                      <button
+                        key={key}
+                        onClick={() => navigateToDestination(key)}
+                        className="flex items-center space-x-3 p-3 text-left border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                      >
+                        <span className="text-xl">{destination.icon}</span>
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{destination.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {destination.coordinates[1].toFixed(4)}, {destination.coordinates[0].toFixed(4)}
+                          </div>
+                        </div>
+                        <div className="text-xs text-blue-600 font-medium">→ Navigate</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <div className="border-t pt-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Navigate between city points:</h4>
+                
+                {/* Quick Route: Custom Point to Bus Stand */}
+                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-xs font-medium text-blue-800 mb-2">🚀 Quick Route:</div>
+                  <button
+                    onClick={() => navigateBetweenPoints("custom-point", "new-bus-stand")}
+                    className="flex items-center space-x-2 p-2 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors w-full"
+                  >
+                    <span>📍</span>
+                    <span>Custom Point</span>
+                    <span>→</span>
+                    <span>🚌</span>
+                    <span>New Bus Stand</span>
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-2">
+                  {Object.entries(kottakkalDestinations).slice(0, 4).map(([fromKey, fromDest]) => (
+                    <div key={fromKey} className="space-y-1">
+                      <div className="text-xs font-medium text-gray-600">From {fromDest.name}:</div>
+                      <div className="grid grid-cols-2 gap-1">
+                        {Object.entries(kottakkalDestinations)
+                          .filter(([toKey]) => toKey !== fromKey)
+                          .slice(0, 4)
+                          .map(([toKey, toDest]) => (
+                            <button
+                              key={toKey}
+                              onClick={() => navigateBetweenPoints(fromKey, toKey)}
+                              className="flex items-center space-x-1 p-2 text-xs border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+                            >
+                              <span>{toDest.icon}</span>
+                              <span className="truncate">{toDest.name}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={isTrackingUser ? stopLocationTracking : startLocationTracking}
-            className={`px-3 py-1 text-xs rounded ${isTrackingUser
-                ? 'bg-red-500 text-white hover:bg-red-600'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
-              }`}
-          >
-            {isTrackingUser ? 'Stop' : 'Start'}
-          </button>
         </div>
-        {userLocation && (
-          <div className="text-xs text-gray-600 mt-1">
-            <div>Coordinates: {userLocation.coordinates[1].toFixed(4)}, {userLocation.coordinates[0].toFixed(4)}</div>
-            <div>Accuracy: ±{Math.round(userLocation.accuracy)}m</div>
-            <div>Updated: {new Date(userLocation.timestamp).toLocaleTimeString()}</div>
-          </div>
-        )}
-        {locationError && (
-          <div className="text-xs text-red-600 mt-1">{locationError}</div>
-        )}
-      </div>
+      )}
 
       {/* Map Controls */}
       <MapControls

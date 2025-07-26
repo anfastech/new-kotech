@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator"
 
 interface Vehicle {
   id: string
-  type: "ambulance" | "fire" | "school_bus" | "city_bus" | "normal"
+  type: "ambulance" | "fire" | "police" | "school_bus" | "city_bus" | "normal"
   coordinates: [number, number]
   status: string
   timestamp: number
@@ -28,11 +28,12 @@ interface MapControlsProps {
   visibleLayers: {
     ambulance: boolean
     fire: boolean
+    police: boolean
     school_bus: boolean
     city_bus: boolean
     normal: boolean
   }
-  onLayerToggle: (layer: "ambulance" | "fire" | "school_bus" | "city_bus" | "normal", visible: boolean) => void
+                  onLayerToggle: (layer: "ambulance" | "fire" | "police" | "school_bus" | "city_bus" | "normal", visible: boolean) => void
   onResetView?: () => void
   showRoutes?: boolean
   onToggleRoutes?: () => void
@@ -70,6 +71,8 @@ export function MapControls({
         return <Heart className="w-4 h-4 text-red-500" />
       case "fire":
         return <Flame className="w-4 h-4 text-orange-500" />
+      case "police":
+        return <Car className="w-4 h-4 text-purple-500" />
       case "school_bus":
       case "city_bus":
         return <Bus className="w-4 h-4 text-blue-500" />

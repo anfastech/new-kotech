@@ -34,15 +34,31 @@ const vehicles = [
     driver: "Priya Menon",
     route: "Route A - Government School",
   },
-  {
-    id: "bus-002",
-    type: "city_bus",
-    coordinates: [75.7844, 11.2628],
-    status: "route",
-    driver: "Anil Kumar",
-    route: "City Route 1",
-  },
-]
+                  {
+                  id: "police-001",
+                  type: "police",
+                  coordinates: [75.7834, 11.2618],
+                  status: "patrolling",
+                  driver: "Officer Rajesh",
+                  contact: "+91-9876543213",
+                },
+                {
+                  id: "police-002",
+                  type: "police",
+                  coordinates: [75.7844, 11.2628],
+                  status: "responding",
+                  driver: "Officer Priya",
+                  contact: "+91-9876543214",
+                },
+                {
+                  id: "bus-002",
+                  type: "city_bus",
+                  coordinates: [75.7854, 11.2638],
+                  status: "route",
+                  driver: "Anil Kumar",
+                  route: "City Route 1",
+                },
+              ]
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)

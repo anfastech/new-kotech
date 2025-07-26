@@ -17,6 +17,7 @@ export function TrafficLegend({ showRoutes }: TrafficLegendProps) {
   const routeTypes = [
     { type: "Ambulance", color: "bg-red-500", description: "Emergency route" },
     { type: "Fire Truck", color: "bg-orange-500", description: "Emergency route" },
+    { type: "Police", color: "bg-purple-500", description: "Law enforcement route" },
     { type: "Other", color: "bg-blue-500", description: "Standard route" },
   ]
 

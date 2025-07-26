@@ -8,7 +8,7 @@ import { X, Heart, Flame, Bus, Car, Phone, MapPin, Clock, Route, Navigation, Tar
 
 interface Vehicle {
   id: string
-  type: "ambulance" | "fire" | "school_bus" | "city_bus" | "normal"
+  type: "ambulance" | "fire" | "police" | "school_bus" | "city_bus" | "normal"
   coordinates: [number, number]
   status: string
   timestamp: number
