@@ -8,6 +8,7 @@ import { TrafficLegend } from "./traffic-legend"
 import { TestCoordinate } from "./test-coordinate"
 import { useNotifications } from "@/components/notifications/notification-provider"
 import { useMap } from "@/components/providers/map-provider"
+import { useRole } from "@/components/providers/role-provider"
 interface Vehicle {
   id: string
   type: "ambulance" | "fire" | "police" | "school_bus" | "city_bus" | "normal"
@@ -73,6 +74,7 @@ export function MapComponent() {
 
   const { socket, isConnected, connectionStatus } = useSocket()
   const { sendNotification } = useNotifications()
+  const { currentRole } = useRole()
   const {
     setVehicles: setVehiclesContext,
     setVisibleLayers: setVisibleLayersContext,
@@ -1504,8 +1506,11 @@ export function MapComponent() {
 
       {/* User Location Controls */}
       <div className="absolute top-20 right-4 bg-white rounded-lg shadow-lg p-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Location Tracking</span>
+        {/* Role-based Header */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium">
+            {currentRole === "ambulance-driver" ? "🚑 Driver Controls" : "📍 Location Tracking"}
+          </span>
           <div className={`w-3 h-3 rounded-full ${isTrackingUser ? "bg-green-500" : "bg-gray-400"}`} />
         </div>
         {userLocation && (
@@ -1553,6 +1558,24 @@ export function MapComponent() {
               >
                 Navigate to Hospital
               </button>
+              
+              {/* Driver-specific buttons */}
+              {currentRole === "ambulance-driver" && (
+                <>
+                  <button
+                    onClick={() => calculateRouteFromUser([75.7804, 11.2588], "ambulance")}
+                    className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    🚑 Emergency Route
+                  </button>
+                  <button
+                    onClick={() => sendNotification("Emergency Mode", "Emergency vehicle routing activated")}
+                    className="px-3 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                  >
+                    🚨 Emergency Mode
+                  </button>
+                </>
+              )}
             </>
           )}
           {!userLocation && (
@@ -1574,6 +1597,17 @@ export function MapComponent() {
         </div>
         <div className="text-xs text-blue-600 mt-1">View restricted to district boundaries</div>
       </div>
+
+      {/* Driver Status Indicator */}
+      {currentRole === "ambulance-driver" && (
+        <div className="absolute top-4 left-4 bg-red-50 border border-red-200 rounded-lg shadow-lg p-3">
+          <div className="flex items-center space-x-2">
+            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+            <span className="text-sm font-medium text-red-800">Emergency Driver</span>
+          </div>
+          <div className="text-xs text-red-600 mt-1">Priority routing & emergency features active</div>
+        </div>
+      )}
 
       {/* Destination Selector Modal */}
       {showDestinationSelector && (

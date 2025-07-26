@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { useSocket } from "@/components/providers/socket-provider"
 import { useGame } from "@/components/gamification/game-provider"
 import { useNotifications } from "@/components/notifications/notification-provider"
+import { RoleIndicator } from "@/components/role-indicator"
 import { Bell, Trophy, Wifi, WifiOff } from "lucide-react"
 
 export function Header() {
@@ -24,6 +25,8 @@ export function Header() {
         </div>
 
         <div className="flex items-center space-x-4">
+          <RoleIndicator />
+          
           <div className="flex items-center space-x-2">
             <Trophy className="w-4 h-4 text-yellow-500" />
             <span className="text-sm font-medium">Level {level}</span>
